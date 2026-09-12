@@ -1,0 +1,59 @@
+"""向量库封装(Chroma)。
+
+两个 collection:text(bge 文本向量)与 image(CLIP 图像向量,M1 可选)。
+检索时通过 metadata 过滤 domain/type/category。
+"""
+import logging
+
+import chromadb
+
+logger = logging.getLogger(__name__)
+
+
+class VectorStore:
+    def __init__(self, path):
+        self.client = chromadb.PersistentClient(path=str(path))
+        self.text = self.client.get_or_create_collection(
+            "chunk_text", metadata={"hnsw:space": "cosine"}
+        )
+        self._image = None
+
+    @property
+    def image(self):
+        """图像 collection 懒创建(装了 CLIP 才用)。"""
+        if self._image is None:
+            self._image = self.client.get_or_create_collection(
+                "chunk_image", metadata={"hnsw:space": "cosine"}
+            )
+        return self._image
+
+    def upsert_text(self, chunk_ids, vectors, documents, metadatas):
+        self.text.upsert(
+            ids=[str(i) for i in chunk_ids],
+            embeddings=vectors,
+            documents=documents,
+            metadatas=metadatas,
+        )
+
+    def upsert_image(self, chunk_ids, vectors, metadatas):
+        self.image.upsert(
+            ids=[str(i) for i in chunk_ids],
+            embeddings=vectors,
+            metadatas=metadatas,
+        )
+
+    def query_text(self, vector, where=None, k=10) -> list[dict]:
+        res = self.text.query(
+            query_embeddings=[vector],
+            n_results=min(k, max(1, self.text.count())),
+            where=where or None,
+        )
+        ids = res.get("ids", [[]])[0]
+        distances = res.get("distances", [[]])[0]
+        return [
+            {"chunk_id": int(cid), "distance": d}
+            for cid, d in zip(ids, distances)
+        ]
+
+    def count_text(self) -> int:
+        return self.text.count()

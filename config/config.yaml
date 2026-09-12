@@ -1,0 +1,17 @@
+# MemVault 配置(M1)
+embedding:
+  text_model: BAAI/bge-small-zh-v1.5
+  fake: false          # true = 确定性假嵌入,离线/测试用
+asr:
+  model: small         # tiny / base / small / medium
+  device: cpu
+  compute_type: int8
+frames:
+  max_frames: 16
+  frame_interval: 5.0
+  scene_threshold: 0.45
+bili:
+  quality: 64          # 64=720P, 80=1080P
+  cookies_path: null   # cookies.txt 路径,高清/会员视频需要
+keep_video: false      # 入库后是否保留视频原文件(帧图始终保留)
+data_dir: null         # null = <项目>/data;可用环境变量 MEMVAULT_DATA_DIR 覆盖

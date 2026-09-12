@@ -1,0 +1,10 @@
+# MemVault M1 核心依赖
+chromadb>=0.5.0
+faster-whisper>=1.0.0
+sentence-transformers>=3.0
+opencv-python>=4.8
+numpy
+pillow
+pyyaml
+python-dotenv
+requests

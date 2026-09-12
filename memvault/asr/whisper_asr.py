@@ -1,0 +1,29 @@
+"""ASR:faster-whisper 封装(懒加载,带时间戳分段)。"""
+import logging
+import os
+
+# faster-whisper 模型经 huggingface_hub 下载,国内镜像提前设置
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
+logger = logging.getLogger(__name__)
+
+
+def transcribe(video_path, model_size="small", device="cpu",
+               compute_type="int8") -> list[dict]:
+    """转写音轨,返回 [{"start": 秒, "end": 秒, "text": 文本}]。"""
+    from faster_whisper import WhisperModel
+
+    logger.info("加载 faster-whisper 模型 %s(%s/%s)...",
+                model_size, device, compute_type)
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    segments, info = model.transcribe(
+        str(video_path), vad_filter=True, language=None
+    )
+    out = []
+    for s in segments:
+        text = s.text.strip()
+        if text:
+            out.append({"start": round(s.start, 2), "end": round(s.end, 2),
+                        "text": text})
+    logger.info("转写完成:检测语言 %s,共 %d 段", info.language, len(out))
+    return out
