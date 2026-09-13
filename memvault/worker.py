@@ -9,6 +9,22 @@ import time
 logger = logging.getLogger(__name__)
 
 
+def recover_stale_jobs(db) -> int:
+    """启动恢复:把上次进程中断时卡在 running 的任务放回队列。
+
+    视频任务有断点续传,重跑安全;文本任务极端情况下可能重复入库
+    (仅发生在崩溃于写入中途的窗口期)。
+    """
+    n = db._conn().execute(
+        "UPDATE jobs SET status='pending', started_at=NULL,"
+        " error='上次进程中断,已自动恢复重试' WHERE status='running'"
+    ).rowcount
+    db._conn().commit()
+    if n:
+        logger.info("恢复 %d 个被中断的任务", n)
+    return n
+
+
 def build_dispatch(memory, cfg: dict) -> dict:
     from memvault import automation as automation_mod
     from memvault.pipeline import auto as auto_mod

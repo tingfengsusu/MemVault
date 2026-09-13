@@ -89,11 +89,13 @@ def cmd_serve(_args):
     import uvicorn
 
     from memvault.server.app import create_app
+    from memvault.worker import recover_stale_jobs
 
     cfg = load_config()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] %(message)s",
                         datefmt="%H:%M:%S")
+    recover_stale_jobs(Database(db_path(cfg)))
     s = cfg["server"]
     uvicorn.run(create_app(cfg, start_worker=True),
                 host=s["host"], port=s["port"], log_level="info")

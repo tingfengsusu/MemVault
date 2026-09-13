@@ -75,3 +75,18 @@ def test_worker_marks_unknown_type_failed(memory):
     ).fetchone()
     assert row["status"] == "failed"
     assert "未知任务类型" in row["error"]
+
+
+def test_recover_stale_jobs(memory):
+    from memvault.worker import recover_stale_jobs
+
+    j1 = memory.db.enqueue("ingest_video", {"source": "BV1"})
+    j2 = memory.db.enqueue("ingest_text", {"text": "x"})
+    memory.db.claim_next()                      # j1 → running
+    memory.db.claim_next()                      # j2 → running
+    n = recover_stale_jobs(memory.db)
+    assert n == 2
+    rows = memory.db._conn().execute(
+        "SELECT status, error FROM jobs ORDER BY id").fetchall()
+    assert all(r["status"] == "pending" for r in rows)
+    assert "中断" in rows[0]["error"]

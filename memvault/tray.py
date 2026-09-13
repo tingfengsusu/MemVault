@@ -68,8 +68,9 @@ def run(cfg: dict | None = None):
     memory = Memory(db, vs, get_text_embedder(cfg))
 
     from memvault.server.app import create_app
-    from memvault.worker import run_worker
+    from memvault.worker import recover_stale_jobs, run_worker
 
+    recover_stale_jobs(db)  # 上次若被强制关闭,恢复卡在 running 的任务
     app = create_app(cfg, memory=memory)
 
     import uvicorn
@@ -137,6 +138,12 @@ def run(cfg: dict | None = None):
     def quit_app(_icon, _item):
         stop_event.set()
         server.should_exit = True
+        try:
+            import keyboard
+
+            keyboard.unhook_all()  # 释放全局热键钩子
+        except Exception:  # noqa: BLE001 — 清理失败不阻止退出
+            pass
         _icon.stop()
 
     def inbox_label(item):
