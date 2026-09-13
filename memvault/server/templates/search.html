@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}搜索 · MemVault{% endblock %}
+{% block content %}
+<h3 style="margin:4px 0 12px">“{{ q }}” 的检索结果({{ results|length }})</h3>
+{% for r in results %}
+<div class="card">
+  <h3><a href="/items/{{ r.item.id }}">{{ r.item.title }}</a></h3>
+  <div>
+    <span class="tag">{{ r.item.domain }}</span>
+    <span class="tag gray">{{ r.item.type }}</span>
+    <span class="tag gray">score {{ '%.4f'|format(r.score) }}</span>
+    {% if r.chunk.start_ts is not none %}
+      <span class="ts">{{ r.chunk.start_ts|ts }}</span>
+      {% if r.chunk.jump %}<a class="jump" href="{{ r.chunk.jump }}" target="_blank">▶ 跳到视频此处</a>{% endif %}
+    {% endif %}
+  </div>
+  {% if r.chunk.content %}<div class="snippet">{{ r.chunk.content[:300] }}</div>{% endif %}
+  {% if r.chunk.media_url %}<img class="thumb" src="{{ r.chunk.media_url }}">{% endif %}
+</div>
+{% else %}
+<div class="card"><h3>无结果</h3><p class="muted">换个关键词试试;混合检索 = 向量语义 + 关键词。</p></div>
+{% endfor %}
+{% endblock %}

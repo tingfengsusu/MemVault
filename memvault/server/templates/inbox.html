@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}待整理 · MemVault{% endblock %}
+{% block content %}
+<h3 style="margin:4px 0 12px">待整理箱({{ items|length }})</h3>
+{% for it in items %}
+<div class="card">
+  <h3><a href="/items/{{ it.id }}">{{ it.title }}</a></h3>
+  <div>
+    <span class="tag">{{ it.domain }}</span>
+    <span class="tag gray">{{ it.type }}</span>
+    <span class="muted">{{ it.created_at }} · {{ it.source_ref or '' }}</span>
+  </div>
+  <div style="margin-top:8px">
+    <form class="inline" method="post" action="/items/{{ it.id }}/status?status=filed">
+      <button>✔ 已归类</button>
+    </form>
+    <form class="inline" method="post" action="/items/{{ it.id }}/status?status=archived">
+      <button class="ghost">归档</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card"><h3>空空如也</h3><p class="muted">新采集的条目会先落在这里,等 LLM 自动分类(M3)或手动归类。</p></div>
+{% endfor %}
+{% endblock %}

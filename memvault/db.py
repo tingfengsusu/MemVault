@@ -392,6 +392,27 @@ class Database:
         ).fetchone()
         return dict(row) if row else None
 
+    # ── 面板查询 ──────────────────────────────────────────────────────
+    def list_items(self, status=None, limit=50, offset=0) -> list[dict]:
+        sql = "SELECT * FROM items"
+        args: list = []
+        if status:
+            sql += " WHERE status=?"
+            args.append(status)
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        args += [limit, offset]
+        return self._rows(self._conn().execute(sql, args))
+
+    def set_item_status(self, item_id: int, status: str):
+        conn = self._conn()
+        conn.execute("UPDATE items SET status=? WHERE id=?", (status, item_id))
+        conn.commit()
+
+    def list_jobs(self, limit=50) -> list[dict]:
+        return self._rows(self._conn().execute(
+            "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)
+        ))
+
     # ── 统计 ──────────────────────────────────────────────────────────
     def stats(self) -> dict:
         conn = self._conn()

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }} · MemVault{% endblock %}
+{% block content %}
+<div class="card">
+  <h3 style="font-size:17px">{{ item.title }}</h3>
+  <div>
+    <span class="tag">{{ item.domain }}</span>
+    <span class="tag gray">{{ item.type }}</span>
+    <span class="tag gray">{{ item.status }}</span>
+    <span class="muted">{{ item.created_at }}</span>
+  </div>
+  {% if item.source_ref %}
+    <p class="muted" style="word-break:break-all">
+      来源:
+      {% if item.source_ref.startswith('http') %}
+        <a class="jump" href="{{ item.source_ref }}" target="_blank">{{ item.source_ref }}</a>
+      {% else %}{{ item.source_ref }}{% endif %}
+    </p>
+  {% endif %}
+  {% if item.attrs_json and item.attrs_json != '{}' %}
+    <table>
+      {% for k, v in item.attrs_json | from_json_attr %}
+        <tr><th style="width:90px">{{ k }}</th><td>{{ v }}</td></tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+</div>
+
+<h3 style="margin:14px 0 8px">语义块({{ item.chunks|length }})</h3>
+{% for c in item.chunks %}
+<div class="card">
+  <div>
+    <span class="tag gray">{{ c.modality }}</span>
+    {% if c.start_ts is not none %}
+      <span class="ts">{{ c.start_ts|ts }}</span>
+      {% if c.jump %}<a class="jump" href="{{ c.jump }}" target="_blank">▶ 跳到视频此处</a>{% endif %}
+    {% endif %}
+    <span class="muted">#{{ c.seq }}</span>
+  </div>
+  {% if c.content %}<div class="snippet">{{ c.content[:600] }}</div>{% endif %}
+  {% if c.media_url %}<img class="thumb" src="{{ c.media_url }}">{% endif %}
+</div>
+{% endfor %}
+{% endblock %}

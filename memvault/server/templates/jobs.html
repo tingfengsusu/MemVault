@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}任务 · MemVault{% endblock %}
+{% block content %}
+<h3 style="margin:4px 0 12px">任务队列(最近 50)</h3>
+<div class="card">
+<table>
+  <tr><th>#</th><th>类型</th><th>状态</th><th>参数</th><th>错误</th><th>时间</th></tr>
+  {% for j in jobs %}
+  <tr>
+    <td>{{ j.id }}</td>
+    <td>{{ j.type }}</td>
+    <td>
+      {% if j.status == 'done' %}<span class="tag">done</span>
+      {% elif j.status == 'failed' %}<span class="tag" style="background:#fef2f2;color:#b91c1c">failed</span>
+      {% elif j.status == 'running' %}<span class="tag" style="background:#ecfdf5;color:#047857">running</span>
+      {% else %}<span class="tag gray">pending</span>{% endif %}
+    </td>
+    <td class="muted" style="max-width:260px;word-break:break-all">{{ j.payload[:120] }}</td>
+    <td class="muted" style="max-width:200px;word-break:break-all">{{ j.error or '' }}</td>
+    <td class="muted">{{ j.created_at }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">暂无任务</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

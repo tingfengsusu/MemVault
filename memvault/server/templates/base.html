@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}MemVault{% endblock %}</title>
+<style>
+  body{font-family:system-ui,"Segoe UI","Microsoft YaHei",sans-serif;margin:0;background:#f6f7f9;color:#1f2937}
+  header{background:#1f2937;color:#fff;padding:10px 20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  header a{color:#e5e7eb;text-decoration:none;font-size:14px}
+  header a:hover{color:#fff}
+  .brand{font-weight:700;font-size:16px;color:#fff}
+  main{max-width:960px;margin:20px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:12px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card h3 a{color:#1f2937;text-decoration:none}
+  .card h3 a:hover{color:#4f46e5}
+  .muted{color:#6b7280;font-size:12px}
+  .tag{display:inline-block;background:#eef2ff;color:#4338ca;border-radius:4px;padding:1px 6px;font-size:11px;margin-right:4px}
+  .tag.gray{background:#f3f4f6;color:#6b7280}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+  form.inline{display:inline}
+  button{background:#4f46e5;color:#fff;border:0;border-radius:6px;padding:5px 12px;font-size:13px;cursor:pointer}
+  button.ghost{background:#fff;color:#374151;border:1px solid #d1d5db}
+  button:hover{opacity:.9}
+  input[type=search]{width:280px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff}
+  .ts{font-family:monospace;background:#f3f4f6;border-radius:4px;padding:0 4px;font-size:12px}
+  .snippet{font-size:13px;color:#374151;margin-top:4px;white-space:pre-wrap;word-break:break-all}
+  .chips{display:flex;gap:10px;margin-bottom:14px;font-size:13px;color:#6b7280;flex-wrap:wrap}
+  .chips b{color:#1f2937}
+  img.thumb{max-width:180px;border-radius:6px;border:1px solid #e5e7eb;display:block;margin-top:6px}
+  .jump{font-size:12px;color:#4f46e5;text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">🧠 MemVault</span>
+  <nav>
+    <a href="/">库</a>
+    <a href="/inbox">待整理</a>
+    <a href="/jobs">任务</a>
+  </nav>
+  <form action="/search" style="margin-left:auto">
+    <input type="search" name="q" placeholder="搜索记忆库…" value="{{ q or '' }}">
+    <button>搜索</button>
+  </form>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

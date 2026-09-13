@@ -17,6 +17,8 @@ DEFAULTS = {
     "frames": {"max_frames": 16, "frame_interval": 5.0, "scene_threshold": 0.45},
     "bili": {"quality": 64, "cookies_path": None},
     "keep_video": False,
+    "server": {"host": "127.0.0.1", "port": 8765},
+    "hotkey": {"enabled": True, "keys": "ctrl+alt+b"},
 }
 
 

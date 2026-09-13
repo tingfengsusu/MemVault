@@ -76,6 +76,56 @@ def cmd_stats(_args):
         print(f"{k:>12}: {v}")
 
 
+def cmd_serve(_args):
+    """启动 API + 面板(无托盘,适合服务器/调试)。"""
+    import uvicorn
+
+    from memvault.server.app import create_app
+
+    cfg = load_config()
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%H:%M:%S")
+    s = cfg["server"]
+    uvicorn.run(create_app(cfg, start_worker=True),
+                host=s["host"], port=s["port"], log_level="info")
+
+
+def cmd_tray(_args):
+    """托盘常驻(推荐日常形态):面板 + worker + 全局热键。"""
+    from memvault.tray import run
+
+    run()
+
+
+def cmd_autostart(args):
+    """注册/取消 Windows 登录自启(计划任务,无窗口 pythonw)。"""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    if sys.platform != "win32":
+        print("仅支持 Windows", file=sys.stderr)
+        sys.exit(2)
+    from memvault.config import PROJECT_ROOT
+
+    if args.action == "on":
+        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        if not pythonw.exists():
+            pythonw = Path(sys.executable)
+        tr = f'"{pythonw}" "{PROJECT_ROOT / "run_tray.py"}"'
+        r = subprocess.run(
+            ["schtasks", "/Create", "/TN", "MemVault", "/TR", tr,
+             "/SC", "ONLOGON", "/F"],
+            capture_output=True, text=True)
+    else:
+        r = subprocess.run(["schtasks", "/Delete", "/TN", "MemVault", "/F"],
+                           capture_output=True, text=True)
+    out = (r.stdout or "") + (r.stderr or "")
+    print(out.strip() or ("成功" if r.returncode == 0 else f"失败 code={r.returncode}"))
+    sys.exit(r.returncode)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="memvault",
                                 description=f"MemVault v{__version__}")
@@ -96,6 +146,16 @@ def main(argv=None):
     pq.set_defaults(fn=cmd_query)
 
     sub.add_parser("stats", help="库统计").set_defaults(fn=cmd_stats)
+
+    ps = sub.add_parser("serve", help="启动 API+面板(无托盘)")
+    ps.set_defaults(fn=cmd_serve)
+
+    pt = sub.add_parser("tray", help="托盘常驻(面板+worker+热键)")
+    pt.set_defaults(fn=cmd_tray)
+
+    pa = sub.add_parser("autostart", help="登录自启(计划任务)")
+    pa.add_argument("action", choices=["on", "off"])
+    pa.set_defaults(fn=cmd_autostart)
 
     args = p.parse_args(argv)
     args.fn(args)

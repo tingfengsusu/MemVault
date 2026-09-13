@@ -365,3 +365,12 @@ Windows 服务运行在 **Session 0**:无桌面、无 UI、**无法驱动用户�
 ### 13.4 M1 落地记录
 
 SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources);混合检索(向量 + FTS5-trigram,RRF 融合)、视频管线(B站下载 → 带时间戳场景抽帧 → OCR 存档 → faster-whisper ASR → 入库)、记忆 API、CLI(`init/ingest/query/stats`)、worker 轮询循环均已实现,详见 README。
+
+### 13.5 M2 落地记录(触发层)
+
+- **服务层** `memvault/server/app.py`:FastAPI(127.0.0.1:8765),`POST /api/capture` 按 §8.1 协议接收 selection/page/product/video 四类采集,sha1 去重键防重复入库;`/api/health` 供插件探活;`/api/pause` 暂停开关;静态挂载 `/media` 提供帧图缩略图。
+- **面板**:Jinja2 + 原生 CSS(无外部依赖)。页面:库浏览(统计+最近条目)/ 混合搜索 / 待整理箱(状态流转 inbox→filed/archived)/ 条目详情(语义块时间轴、B站 `?t=` 定位跳转)/ 任务队列。worker 提供 `step()` 单步执行,面板/测试均可手动驱动。
+- **常驻形态** `memvault/tray.py`:pystray 托盘(打开面板/待整理计数/暂停切换/退出)+ uvicorn 线程 + worker 线程 + `keyboard` 全局热键(默认 Ctrl+Alt+B,读剪贴板:文件路径→文件任务、URL→视频/链接任务、文本→摘录任务)+ 单实例检查(health 探测,已运行则直接开面板)。`python -m memvault autostart on` 用 schtasks 注册登录自启(pythonw 无窗口)。
+- **浏览器插件** `extension/`(MV3):点击图标 → scripting.executeScript 注入 gatherPage(自包含函数)自动判定页面类型(B站视频页带播放时间/京东/淘宝商品页/选中文字/整页正文前 8000 字)→ POST capture → 角标 ✓/!/× 反馈;30s 探活,服务离线灰显。
+- **新增处理器** `pipeline/text.py`(ingest_text/ingest_product)、`pipeline/files.py`(ingest_file:视频→视频管线,图片→复制入数据目录,其他→占位待 M3 文档解析;capture_from_clipboard 热键入口)。
+- 测试 24 例(API 端到端/面板渲染/去重/暂停/校验/B站跳转链接)。

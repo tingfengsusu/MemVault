@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "MemVault 采集助手",
+  "version": "0.1.0",
+  "description": "一键把网页/商品/视频采集进本地 MemVault 个人记忆库",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "采集到 MemVault" }
+}
