@@ -84,6 +84,8 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     app.mount("/media", StaticFiles(directory=str(media_dir(cfg))),
               name="media")
+    app.mount("/static", StaticFiles(directory=str(TEMPLATES_DIR.parent / "static")),
+              name="static")
 
     if start_worker:
         from memvault.scheduler import run_scheduler

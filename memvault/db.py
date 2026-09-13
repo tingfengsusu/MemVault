@@ -150,6 +150,14 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN auto_note TEXT")
         if not has_col("watch_sources", "label"):
             conn.execute("ALTER TABLE watch_sources ADD COLUMN label TEXT")
+        # 旧数据日志时间是 ISO 'T' 分隔,与 SQLite datetime() 的空格格式混用
+        n = conn.execute(
+            "UPDATE logs SET happened_at = REPLACE(happened_at, 'T', ' ')"
+            " WHERE happened_at LIKE '%T%'"
+        ).rowcount
+        if n:
+            logger = __import__("logging").getLogger(__name__)
+            logger.info("迁移:归一化 %d 条日志时间格式", n)
         conn.commit()
 
     # ── 连接管理 ──────────────────────────────────────────────────────
@@ -356,7 +364,7 @@ class Database:
             "INSERT INTO logs(domain, happened_at, content_text, attrs_json,"
             " related_item_ids, source) VALUES(?,?,?,?,?,?)",
             (domain,
-             happened_at or datetime.now().isoformat(timespec="seconds"),
+             happened_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
              content, json.dumps(attrs or {}, ensure_ascii=False),
              json.dumps(related_item_ids or [], ensure_ascii=False), source),
         )
