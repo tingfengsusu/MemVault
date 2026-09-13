@@ -484,20 +484,55 @@ class Database:
         return dict(row) if row else None
 
     # ── 面板查询 ──────────────────────────────────────────────────────
-    def list_items(self, status=None, limit=50, offset=0) -> list[dict]:
-        sql = "SELECT * FROM items"
-        args: list = []
+    def list_items(self, status=None, domain=None, limit=50, offset=0) -> list[dict]:
+        sql = ("SELECT i.*, (SELECT COUNT(*) FROM chunks c WHERE c.item_id = i.id)"
+               " AS chunk_count FROM items i")
+        where, args = [], []
         if status:
-            sql += " WHERE status=?"
-            args.append(status)
-        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+            where.append("i.status=?"); args.append(status)
+        if domain:
+            where.append("i.domain=?"); args.append(domain)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY i.id DESC LIMIT ? OFFSET ?"
         args += [limit, offset]
+        return self._rows(self._conn().execute(sql, args))
+
+    def count_items(self, status=None, domain=None, category_id=None) -> int:
+        sql = "SELECT COUNT(*) c FROM items"
+        where, args = [], []
+        if status:
+            where.append("status=?"); args.append(status)
+        if domain:
+            where.append("domain=?"); args.append(domain)
+        if category_id:
+            where.append("category_id=?"); args.append(category_id)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        return self._conn().execute(sql, args).fetchone()["c"]
+
+    def items_by_domain(self, status=None) -> list[dict]:
+        sql = ("SELECT domain, COUNT(*) c FROM items")
+        args = []
+        if status:
+            sql += " WHERE status=?"; args.append(status)
+        sql += " GROUP BY domain ORDER BY c DESC"
         return self._rows(self._conn().execute(sql, args))
 
     def set_item_status(self, item_id: int, status: str):
         conn = self._conn()
         conn.execute("UPDATE items SET status=? WHERE id=?", (status, item_id))
         conn.commit()
+
+    def bulk_set_status(self, status_from: str, status_to: str,
+                        domain: str = None) -> int:
+        conn = self._conn()
+        sql, args = "UPDATE items SET status=? WHERE status=?", [status_to, status_from]
+        if domain:
+            sql += " AND domain=?"; args.append(domain)
+        n = conn.execute(sql, args).rowcount
+        conn.commit()
+        return n
 
     def list_jobs(self, limit=50) -> list[dict]:
         return self._rows(self._conn().execute(

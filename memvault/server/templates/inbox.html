@@ -2,14 +2,34 @@
 {% block title %}待整理 · MemVault{% endblock %}
 {% block content %}
 <h3 style="margin:4px 0 12px">待整理箱({{ items|length }})</h3>
+<div class="card">
+  <form method="post" action="/inbox/batch" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="hidden" name="domain" value="{{ domain }}">
+    <span class="muted">批量操作{{ (domain or '') and '(' + domain + ' 领域)' or '(全部领域)' }}:</span>
+    <button name="action" value="filed">✔ 全部已归类</button>
+    <button class="ghost" name="action" value="archived">🗃 全部归档</button>
+    <button class="ghost" name="action" value="auto"
+            onclick="return confirm('将对 {{ items|length }} 条逐条调用 AI 自动分类(消耗 API 额度,约需几分钟),继续?')">
+      🤖 全部交给 AI 分类</button>
+    <span class="muted">「已归类」=确认处理完毕;「归档」=不再显示但保留数据。</span>
+  </form>
+  <div class="chips" style="margin:8px 0 0">
+    <span>按领域:</span>
+    <a class="tag {{ '' if not domain else 'gray' }}" href="/inbox">全部</a>
+    {% for d in domain_counts %}
+    <a class="tag {{ 'gray' if domain != d.domain else '' }}" href="/inbox?domain={{ d.domain }}">{{ d.domain }}({{ d.c }})</a>
+    {% endfor %}
+  </div>
+</div>
 {% for it in items %}
 <div class="card">
   <h3><a href="/items/{{ it.id }}">{{ it.title }}</a></h3>
   <div>
     <span class="tag">{{ it.domain }}</span>
     <span class="tag gray">{{ it.type }}</span>
-    <span class="muted">{{ it.created_at }} · {{ it.source_ref or '' }}</span>
+    {% if it.auto_note %}<span class="muted">AI:{{ it.auto_note[:60] }}</span>{% endif %}
   </div>
+  {% if it.content_text %}<div class="snippet">{{ it.content_text[:100] }}…</div>{% endif %}
   <div style="margin-top:8px">
     <form class="inline" method="post" action="/items/{{ it.id }}/status?status=filed">
       <button>✔ 已归类</button>
@@ -17,9 +37,12 @@
     <form class="inline" method="post" action="/items/{{ it.id }}/status?status=archived">
       <button class="ghost">归档</button>
     </form>
+    <form class="inline" method="post" action="/items/{{ it.id }}/reanalyze">
+      <button class="ghost">🔄 重新分析</button>
+    </form>
   </div>
 </div>
 {% else %}
-<div class="card"><h3>空空如也</h3><p class="muted">新采集的条目会先落在这里,等 LLM 自动分类(M3)或手动归类。</p></div>
+<div class="card"><h3>空空如也</h3><p class="muted">新采集的条目会先落在这里;开启 LLM 后自动分类会定期消化它们。</p></div>
 {% endfor %}
 {% endblock %}
