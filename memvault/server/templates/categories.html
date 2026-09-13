@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}分类 · MemVault{% endblock %}
+{% block content %}
+<h3 style="margin:4px 0 12px">分类树</h3>
+<div class="card">
+  <form method="post" action="/categories/add" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input name="domain" placeholder="领域,如 fitness/shopping" required
+           style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;width:200px">
+    <input name="name" placeholder="新分类名称" required
+           style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;width:200px">
+    <button>添加分类</button>
+    <span class="muted">LLM 自动分类只能从这里"选题";"待确认"的分类是它提议的,点确认后生效。</span>
+  </form>
+</div>
+{% for domain, cats in groups.items() %}
+<div class="card">
+  <h3><span class="tag">{{ domain }}</span></h3>
+  <table>
+    <tr><th style="width:60px">id</th><th>名称</th><th style="width:120px">状态</th><th></th></tr>
+    {% for c in cats %}
+    <tr>
+      <td>{{ c.id }}</td>
+      <td>{{ c.name }}</td>
+      <td>
+        {% if c.status == 'proposed' %}
+          <span class="tag" style="background:#fffbeb;color:#b45309">待确认</span>
+        {% else %}<span class="tag gray">active</span>{% endif %}
+      </td>
+      <td>
+        {% if c.status == 'proposed' %}
+        <form class="inline" method="post" action="/categories/{{ c.id }}/confirm">
+          <button>✔ 确认采纳</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% else %}
+<div class="card"><h3>还没有分类</h3>
+  <p class="muted">先建几个分类(如 fitness 下的"胸/背/腿"),LLM 自动分类才有"选择题"可做。</p>
+</div>
+{% endfor %}
+{% endblock %}

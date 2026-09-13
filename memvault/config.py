@@ -19,6 +19,13 @@ DEFAULTS = {
     "keep_video": False,
     "server": {"host": "127.0.0.1", "port": 8765},
     "hotkey": {"enabled": True, "keys": "ctrl+alt+b"},
+    "llm": {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "api_key": None,          # 也可用环境变量 DEEPSEEK_API_KEY
+        "temperature": 0.1,
+        "classify_confidence": 0.8,
+    },
 }
 
 

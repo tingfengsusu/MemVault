@@ -4,14 +4,12 @@
 
 > 设计文档见 [DESIGN.md](DESIGN.md)。前作 [Video2Shop](https://github.com/tingfengsusu/Video2Shop)(视频→食材清单→京东加购)的管线已吸收为采集源之一。
 
-## 当前状态:M2(触发层)
+## 当前状态:M3a(自动分类 + 提示词进化)
 
 - ✅ M1 平台地基:SQLite 九张表(FTS5 中文全文)、Chroma、记忆 API(混合检索 RRF)、视频管线(B站下载/带时间戳抽帧/OCR 存档/ASR)、CLI、worker
-- ✅ M2 触发层:FastAPI 服务(127.0.0.1:8765)+ `/api/capture` 采集协议
-- ✅ Web 面板:库浏览 / 混合搜索 / 待整理箱 / 条目详情(B站时间戳跳转、帧图缩略图)/ 任务队列
-- ✅ 托盘常驻:`python -m memvault tray`(面板+worker+全局热键 Ctrl+Alt+B 剪贴板采集),登录自启 `python -m memvault autostart on`
-- ✅ Chrome 插件(MV3):点击图标采集当前页 — B站视频/京东/淘宝商品页/选中文字/整页正文,见 [extension/README.md](extension/README.md)
-- ⏳ M3:分类与提示词进化、订阅采集;M4:应用技能(购物/健身)
+- ✅ M2 触发层:FastAPI 服务(127.0.0.1:8765)+ `/api/capture` 采集协议、Web 面板、托盘常驻(热键 Ctrl+Alt+B)、Chrome 插件
+- ✅ M3a:LLM 自动分类(路由→按分类提示词提取属性;低置信度/提议新分类→待整理箱与待确认分类)、提示词版本化 + 质疑驱动进化(feedback 向量库召回相似历史质疑)、分类管理页、条目"重新分析"
+- ⏳ M3b:订阅采集(watch_sources)、对话式画像/日志录入;M4:应用技能(购物/健身)
 
 ## 快速开始
 

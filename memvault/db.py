@@ -123,6 +123,7 @@ class Database:
         self.fts_enabled = True
         with self._conn() as c:
             c.executescript(SCHEMA)
+            self._migrate(c)
             try:
                 c.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts "
@@ -134,6 +135,20 @@ class Database:
                 )
             except sqlite3.OperationalError:
                 self.fts_enabled = False
+
+    def _migrate(self, conn):
+        """轻量列迁移:老库补新列。"""
+
+        def has_col(table, col):
+            return any(r["name"] == col for r in conn.execute(f"PRAGMA table_info({table})"))
+
+        if not has_col("categories", "status"):
+            conn.execute("ALTER TABLE categories ADD COLUMN status TEXT DEFAULT 'active'")
+        if not has_col("items", "category_conf"):
+            conn.execute("ALTER TABLE items ADD COLUMN category_conf REAL")
+        if not has_col("items", "auto_note"):
+            conn.execute("ALTER TABLE items ADD COLUMN auto_note TEXT")
+        conn.commit()
 
     # ── 连接管理 ──────────────────────────────────────────────────────
     def _conn(self) -> sqlite3.Connection:
@@ -357,13 +372,36 @@ class Database:
         return self._rows(self._conn().execute(sql, args))
 
     # ── 分类 ──────────────────────────────────────────────────────────
-    def add_category(self, domain, name, parent_id=None, sort=0) -> int:
+    def add_category(self, domain, name, parent_id=None, sort=0,
+                     status="active") -> int:
         cur = self._conn().execute(
-            "INSERT INTO categories(domain, parent_id, name, sort) VALUES(?,?,?,?)",
-            (domain, parent_id, name, sort),
+            "INSERT INTO categories(domain, parent_id, name, sort, status)"
+            " VALUES(?,?,?,?,?)",
+            (domain, parent_id, name, sort, status),
         )
         self._conn().commit()
         return cur.lastrowid
+
+    def confirm_category(self, category_id: int):
+        conn = self._conn()
+        conn.execute("UPDATE categories SET status='active' WHERE id=?",
+                     (category_id,))
+        conn.commit()
+
+    def get_category(self, category_id: int) -> dict | None:
+        row = self._conn().execute(
+            "SELECT * FROM categories WHERE id=?", (category_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_item_category(self, item_id: int, category_id: int | None,
+                          conf: float | None = None, note: str | None = None):
+        conn = self._conn()
+        conn.execute(
+            "UPDATE items SET category_id=?, category_conf=?, auto_note=? WHERE id=?",
+            (category_id, conf, note, item_id),
+        )
+        conn.commit()
 
     def categories(self, domain=None) -> list[dict]:
         sql = "SELECT * FROM categories"

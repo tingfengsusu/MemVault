@@ -68,6 +68,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         vs = VectorStore(chroma_dir(cfg))
         memory = Memory(db, vs, get_text_embedder(cfg))
 
+    from memvault.prompts import PromptStore
+
+    PromptStore(memory.db).ensure_seed()
+
     app = FastAPI(title="MemVault", version=__version__)
     app.state.cfg = cfg
     app.state.memory = memory
@@ -200,5 +204,36 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         rows = memory.db.list_jobs(50)
         return templates.TemplateResponse(request, "jobs.html",
             ctx(request, jobs=rows))
+
+    # ── 分类管理(M3)────────────────────────────────────────────────
+    @app.get("/categories")
+    def categories_page(request: Request):
+        from collections import defaultdict
+
+        groups = defaultdict(list)
+        for c in memory.db.categories():
+            groups[c["domain"]].append(c)
+        return templates.TemplateResponse(request, "categories.html",
+            ctx(request, groups=dict(groups)))
+
+    @app.post("/categories/add")
+    def categories_add(domain: str, name: str):
+        name = name.strip()[:40]
+        if not name:
+            raise HTTPException(422, "分类名不能为空")
+        memory.db.add_category(domain or "general", name, status="active")
+        return RedirectResponse("/categories", status_code=303)
+
+    @app.post("/categories/{category_id}/confirm")
+    def categories_confirm(category_id: int):
+        memory.db.confirm_category(category_id)
+        return RedirectResponse("/categories", status_code=303)
+
+    @app.post("/items/{item_id}/reanalyze")
+    def reanalyze(item_id: int):
+        if not memory.get_item(item_id):
+            raise HTTPException(404)
+        memory.db.enqueue("auto_process", {"item_id": item_id})
+        return RedirectResponse(f"/items/{item_id}", status_code=303)
 
     return app

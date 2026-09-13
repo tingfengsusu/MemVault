@@ -57,3 +57,28 @@ class VectorStore:
 
     def count_text(self) -> int:
         return self.text.count()
+
+    # ── 质疑记忆库(提示词进化的历史教训)─────────────────────────────
+    @property
+    def feedback(self):
+        if not hasattr(self, "_feedback") or self._feedback is None:
+            self._feedback = self.client.get_or_create_collection(
+                "feedback", metadata={"hnsw:space": "cosine"}
+            )
+        return self._feedback
+
+    def upsert_feedback(self, ids, vectors, documents, metadatas):
+        self.feedback.upsert(
+            ids=[str(i) for i in ids], embeddings=vectors,
+            documents=documents, metadatas=metadatas,
+        )
+
+    def query_feedback(self, vector, where=None, k=5) -> list[int]:
+        total = self.feedback.count()
+        if total == 0:
+            return []
+        res = self.feedback.query(
+            query_embeddings=[vector], n_results=min(k, total),
+            where=where or None,
+        )
+        return [int(i) for i in res.get("ids", [[]])[0]]

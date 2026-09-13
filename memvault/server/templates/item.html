@@ -17,6 +17,18 @@
       {% else %}{{ item.source_ref }}{% endif %}
     </p>
   {% endif %}
+  <div style="margin:8px 0">
+    {% if item.category_id %}
+      <span class="tag">分类 #{{ item.category_id }}</span>
+      {% if item.category_conf is not none %}
+        <span class="tag gray">置信度 {{ '%.2f'|format(item.category_conf) }}</span>
+      {% endif %}
+    {% endif %}
+    <form class="inline" method="post" action="/items/{{ item.id }}/reanalyze">
+      <button class="ghost">🔄 重新分析</button>
+    </form>
+  </div>
+  {% if item.auto_note %}<p class="muted">自动分析:{{ item.auto_note }}</p>{% endif %}
   {% if item.attrs_json and item.attrs_json != '{}' %}
     <table>
       {% for k, v in item.attrs_json | from_json_attr %}

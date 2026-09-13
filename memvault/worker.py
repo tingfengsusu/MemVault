@@ -10,18 +10,34 @@ logger = logging.getLogger(__name__)
 
 
 def build_dispatch(memory, cfg: dict) -> dict:
+    from memvault.pipeline import auto as auto_mod
+    from memvault.pipeline import files as files_mod
     from memvault.pipeline import text as text_mod
     from memvault.pipeline import video
-    from memvault.pipeline import files as files_mod
+
+    def with_auto(fn):
+        """采集成功 → 自动排队 LLM 分类提取(去重防重放)。"""
+
+        def inner(p):
+            item_id = fn(p)
+            if isinstance(item_id, int):
+                memory.db.enqueue(
+                    "auto_process", {"item_id": item_id},
+                    dedup_key=f"auto|{item_id}",
+                )
+            return item_id
+
+        return inner
 
     return {
-        "ingest_video": lambda p: video.ingest_video(
+        "ingest_video": with_auto(lambda p: video.ingest_video(
             p["source"], memory, cfg, domain=p.get("domain", "general"),
             progress=lambda m: logger.info("[job] %s", m),
-        ),
-        "ingest_text": lambda p: text_mod.ingest_text(p, memory),
-        "ingest_product": lambda p: text_mod.ingest_product(p, memory),
-        "ingest_file": lambda p: files_mod.ingest_file(p, memory, cfg),
+        )),
+        "ingest_text": with_auto(lambda p: text_mod.ingest_text(p, memory)),
+        "ingest_product": with_auto(lambda p: text_mod.ingest_product(p, memory)),
+        "ingest_file": with_auto(lambda p: files_mod.ingest_file(p, memory, cfg)),
+        "auto_process": lambda p: auto_mod.auto_process(p, memory, cfg),
     }
 
 

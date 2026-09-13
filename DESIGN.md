@@ -374,3 +374,12 @@ SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources)
 - **浏览器插件** `extension/`(MV3):点击图标 → scripting.executeScript 注入 gatherPage(自包含函数)自动判定页面类型(B站视频页带播放时间/京东/淘宝商品页/选中文字/整页正文前 8000 字)→ POST capture → 角标 ✓/!/× 反馈;30s 探活,服务离线灰显。
 - **新增处理器** `pipeline/text.py`(ingest_text/ingest_product)、`pipeline/files.py`(ingest_file:视频→视频管线,图片→复制入数据目录,其他→占位待 M3 文档解析;capture_from_clipboard 热键入口)。
 - 测试 24 例(API 端到端/面板渲染/去重/暂停/校验/B站跳转链接)。
+
+### 13.6 M3a 落地记录(自动分类 + 提示词进化)
+
+- **LLM 客户端** `memvault/llm.py`:OpenAI 兼容(DeepSeek),key 解析顺序 config → 环境变量 → .env → 复用 Video2Shop 配置(仅本机);未配置时 enabled=False,所有调用方必须走降级路径。
+- **路由** `classify.route_item`:分类树"选择题" + 向量检索 3 条相似已分类条目作参考 → JSON {category_id/new_category, confidence, reason}。conf ≥ 0.8 且分类 active → item 转 filed;提议新分类 → categories 建状态=proposed 的行,条目留待整理箱,面板确认后生效;低置信 → 留箱并写 auto_note。
+- **提取** `classify.extract_item`:按分类取活跃提示词(无则用通用版),输出 JSON 合并进 attrs_json(null 字段不落库)。
+- **提示词系统** `memvault/prompts.py`:版本化(new_version 自动退役旧 active、rollback 回滚)、种子 router/extract 提示词、add_feedback(质疑入库 + 向量化进 feedback collection,metadata 带 category_id)、similar_critiques(同分类语义召回历史质疑)、rewrite_from_feedback(无专属版先从通用分叉 v1 → LLM 基于当前提示词+出错样例+历史质疑改写 → 新版本 origin=feedback)。
+- **接入**:采集成功自动排队 auto_process(带去重键);面板新增分类管理页(增分类/确认提议)、条目详情显示分类与置信度 + "重新分析"按钮;分类未确认前不参与路由选择题。
+- 测试 34 例(路由三分支/提取合并/版本回滚/质疑改写/分叉/LLM 未配置跳过/自动排队/面板分类流)。DeepSeek 连通性已真机验证。
