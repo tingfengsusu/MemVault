@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_dispatch(memory, cfg: dict) -> dict:
+    from memvault import automation as automation_mod
     from memvault.pipeline import auto as auto_mod
     from memvault.pipeline import files as files_mod
     from memvault.pipeline import text as text_mod
@@ -41,6 +42,7 @@ def build_dispatch(memory, cfg: dict) -> dict:
         "auto_process": lambda p: auto_mod.auto_process(p, memory, cfg),
         "watch_check": lambda p: scheduler_mod.check_source(
             memory, cfg, p["source_id"]),
+        "jd_cart": lambda p: automation_mod.jd_cart_add(p),
     }
 
 

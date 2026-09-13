@@ -27,6 +27,12 @@
     <form class="inline" method="post" action="/items/{{ item.id }}/reanalyze">
       <button class="ghost">🔄 重新分析</button>
     </form>
+    {% if item.type == 'product' %}
+    <form class="inline" method="post" action="/items/{{ item.id }}/cart">
+      <button>🛒 加入京东购物车</button>
+    </form>
+    <span class="muted">将接管 Chrome 搜索"{item.title} 自营"并点第一结果的加购(在任务页看结果)</span>
+    {% endif %}
   </div>
   {% if item.auto_note %}<p class="muted">自动分析:{{ item.auto_note }}</p>{% endif %}
   {% if item.attrs_json and item.attrs_json != '{}' %}

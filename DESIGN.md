@@ -389,3 +389,9 @@ SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources)
 - **订阅** `memvault/scheduler.py` + `sources/bili_watch.py`:watch_sources 三类操作(添加含 UP主昵称解析/启停/立即检查);调度线程按时间桶给启用源排 watch_check 任务(去重),worker 执行。适配器:wbi 签名 + buvid 预热 + dm 指纹参数;**B站对匿名访问投稿列表已全面风控(-352/-799),实测 spi/ExClimbWuzhi/legacy 接口均不可用,最终方案为用户登录 cookies.txt**(config.bili.cookies_path,与下载器共用),错误信息带配置指引。首次检查只登记历史(seed 成 done 任务),此后增量。
 - **聊天** `memvault/chat.py`:一轮 = LLM 抽取(profile 键值 / log 事件 / search_query)→ 持久化画像与日志 → memory.search 组装个人上下文 → 按技能(general/fitness/shopping)提示词生成回复。面板 /chat 页消息不落盘,抽取结果落盘;LLM 未配置返回 503。
 - **托盘/serve** 均已启动调度线程;测试 45 例(wbi 确定性/UID 解析/首查登记/增量去重/时间桶/聊天抽取持久化/面板流)。
+
+### 13.8 M4 落地记录(应用技能 + 执行层)
+
+- **技能化** `memvault/skills/builtin.py`:SkillSpec = 提示词 + 日志过滤(domain/天数) + 检索过滤(search_kwargs)。general/fitness/shopping 三个内置技能;fitness/shopping 检索限定自身领域,通用技能不过滤;chat.py 改为按技能取检索策略与提示词,新增领域只加一个 SkillSpec。
+- **执行层** `memvault/automation/`:JdHandler 整体移植自 Video2Shop(690 行,零内部依赖,Playwright CDP 接管 Chrome:搜索"{关键词} 自营"→点第一结果加购→重试与确认)。安全边界:**加购仅由用户在面板商品详情页点击"🛒 加入京东购物车"触发**,入 jd_cart 队列由 worker 执行,LLM/对话永远不能自动下单;失败(含京东未登录 5 分钟超时)在任务页可见。
+- 测试 51 例(技能注册/领域过滤/通用不过滤/加购成功与失败/端点与模板)。

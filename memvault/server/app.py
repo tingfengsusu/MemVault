@@ -250,6 +250,16 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         memory.db.enqueue("auto_process", {"item_id": item_id})
         return RedirectResponse(f"/items/{item_id}", status_code=303)
 
+    @app.post("/items/{item_id}/cart")
+    def item_cart(item_id: int):
+        """把库中条目加入京东购物车(用户显式点击,worker 异步执行)。"""
+        item = memory.get_item(item_id)
+        if not item:
+            raise HTTPException(404)
+        memory.db.enqueue("jd_cart", {"keyword": item["title"],
+                                      "item_id": item_id})
+        return RedirectResponse(f"/items/{item_id}", status_code=303)
+
     # ── 聊天(M3b:对话式画像/日志录入 + 问答)──────────────────────
     from memvault.llm import LLMClient
 

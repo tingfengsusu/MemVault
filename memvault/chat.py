@@ -1,9 +1,12 @@
 """对话式录入与问答:聊天页的后端。
 
-一轮 = 抽取(画像/日志/检索词)→ 检索个人上下文 → 生成回复。
-画像与日志持久化;对话本身不落盘(M4 技能层再增强)。
+一轮 = 抽取(画像/日志/检索词)→ 按技能检索个人上下文 → 生成回复。
+画像与日志持久化;对话本身不落盘。
+检索策略与提示词由技能定义(memvault/skills),M4 起技能化。
 """
 import logging
+
+from memvault.skills import get_skill
 
 logger = logging.getLogger(__name__)
 
@@ -14,32 +17,16 @@ EXTRACT_SYSTEM = """你是个人记忆库的信息抽取器。从用户消息中
 3. search_query:用户在提问或寻求建议时,给一个适合语义检索的中文查询串;纯陈述没有为 null
 输出 JSON:{"profile": [...], "log": {...}|null, "search_query": "...|null"}"""
 
-REPLY_SYSTEMS = {
-    "general": (
-        "你是 MemVault 个人记忆库助手。基于「个人上下文」回答问题;"
-        "上下文来自用户自己的库(条目/画像/日志),与问题无关的部分忽略。"
-        "回答用简洁中文。"
-    ),
-    "fitness": (
-        "你是用户的私人健身教练。结合「训练日志」判断近期训练量是否失衡,"
-        "结合「画像」给出个性化建议(明确指出:什么练多了、明天建议练什么部位、注意事项)。"
-        "用户刚报告了今天的训练时,先确认已记录,再给建议。用友好专业的中文。"
-    ),
-    "shopping": (
-        "你是用户的购物决策助手。结合「个人上下文」中已收藏/已有的商品,"
-        "提示重复购买、类似款、搭配建议;不确定的信息明说不确定。用简洁中文。"
-    ),
-}
 
-
-def _context_text(memory, skill: str, results: list[dict]) -> str:
+def _context_text(memory, skill, results: list[dict]) -> str:
     parts = []
     profile = memory.get_profile()
     if profile:
         lines = [f"- {p['domain']}/{p['key']}: {p['value_json']}"
                  for p in profile]
         parts.append("画像:\n" + "\n".join(lines))
-    logs = memory.timeline(days=7, domain=skill if skill in ("fitness", "shopping") else None)
+    logs = memory.timeline(days=skill.timeline_days,
+                           domain=skill.timeline_domain)
     if logs:
         lines = [f"- {l['happened_at']} {l['content_text']}" for l in logs[:20]]
         parts.append("近期日志:\n" + "\n".join(lines))
@@ -60,6 +47,7 @@ def chat_turn(memory, llm, message: str, skill: str = "general") -> dict:
     if not message.strip():
         raise ValueError("消息为空")
 
+    skill_spec = get_skill(skill)
     extraction = llm.chat_json(EXTRACT_SYSTEM, message)
 
     saved_profile = []
@@ -80,11 +68,12 @@ def chat_turn(memory, llm, message: str, skill: str = "general") -> dict:
         log_saved = lg["content"]
 
     q = extraction.get("search_query")
-    results = memory.search(q, top_k=6) if q else []
-    context = _context_text(memory, skill, results)
+    results = (memory.search(q, top_k=skill_spec.search_top_k,
+                             **(skill_spec.search_kwargs or {}))
+               if q else [])
+    context = _context_text(memory, skill_spec, results)
 
-    system = REPLY_SYSTEMS.get(skill, REPLY_SYSTEMS["general"])
     user = f"个人上下文:\n{context}\n\n用户消息:{message}"
-    reply = llm.chat(system, user)
+    reply = llm.chat(skill_spec.system_prompt, user)
     return {"reply": reply, "profile_saved": saved_profile,
             "log_saved": log_saved, "context_used": len(results)}
