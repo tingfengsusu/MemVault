@@ -2,11 +2,19 @@
 {% block title %}库 · MemVault{% endblock %}
 {% block content %}
 <div class="chips">
-  <span>条目 <b>{{ stats.items }}</b></span>
-  <span>语义块 <b>{{ stats.chunks }}</b></span>
-  <span>待整理 <b>{{ stats.inbox }}</b></span>
-  <span>日志 <b>{{ stats.logs }}</b></span>
-  <span>任务 <b>{{ stats.jobs }}</b></span>
+  <span>条目 <b>{{ stats['items'] }}</b></span>
+  <span>语义块 <b>{{ stats['chunks'] }}</b></span>
+  <span>待整理 <b>{{ stats['inbox'] }}</b></span>
+  <span>日志 <b>{{ stats['logs'] }}</b></span>
+  <span>任务 <b>{{ stats['jobs'] }}</b></span>
+  {% for d in domain_counts %}<span>{{ d.domain or '未分域' }} <b>{{ d.c }}</b></span>{% endfor %}
+</div>
+<div class="chips">
+  <span>领域筛选:</span>
+  <a class="tag {{ '' if not domain else 'gray' }}" href="/">全部</a>
+  {% for d in all_domains %}
+  <a class="tag {{ 'gray' if domain != d.domain else '' }}" href="/?domain={{ d.domain }}">{{ d.domain }}({{ d.c }})</a>
+  {% endfor %}
 </div>
 {% for it in items %}
 <div class="card">
@@ -15,6 +23,7 @@
     <span class="tag">{{ it.domain }}</span>
     <span class="tag gray">{{ it.type }}</span>
     <span class="tag gray">{{ it.status }}</span>
+    <span class="tag gray">语义块 {{ it.chunk_count }}</span>
     <span class="muted">{{ it.created_at }} · {{ it.source_ref or '' }}</span>
   </div>
   {% if it.content_text %}<div class="snippet">{{ it.content_text[:120] }}{% if it.content_text|length > 120 %}…{% endif %}</div>{% endif %}
@@ -24,4 +33,9 @@
   <p class="muted">用浏览器插件采集网页/商品/视频,或按全局热键 <b>Ctrl+Alt+B</b> 采集剪贴板内容。</p>
 </div>
 {% endfor %}
+<div class="chips" style="justify-content:center">
+  {% if page > 1 %}<a class="jump" href="/?page={{ page - 1 }}{% if domain %}&domain={{ domain }}{% endif %}">← 上一页</a>{% endif %}
+  <span class="muted">第 {{ page }} 页</span>
+  {% if items|length == 50 %}<a class="jump" href="/?page={{ page + 1 }}{% if domain %}&domain={{ domain }}{% endif %}">下一页 →</a>{% endif %}
+</div>
 {% endblock %}

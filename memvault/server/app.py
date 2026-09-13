@@ -155,11 +155,14 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         return kw
 
     @app.get("/")
-    def index(request: Request):
+    def index(request: Request, domain: str = "", page: int = 1):
+        page = max(1, page)
         stats = memory.db.stats()
-        items = memory.db.list_items(limit=50)
+        items = memory.db.list_items(domain=domain or None,
+                                     limit=50, offset=(page - 1) * 50)
         return templates.TemplateResponse(request, "index.html",
-            ctx(request, stats=stats, items=items))
+            ctx(request, stats=stats, items=items, domain=domain, page=page,
+                domain_counts=memory.db.items_by_domain()))
 
     @app.get("/search")
     def search(request: Request, q: str = ""):
@@ -179,10 +182,28 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             ctx(request, results=results, q=q))
 
     @app.get("/inbox")
-    def inbox(request: Request):
-        items = memory.db.list_items(status="inbox", limit=100)
+    def inbox(request: Request, domain: str = ""):
+        items = memory.db.list_items(status="inbox", domain=domain or None,
+                                     limit=200)
         return templates.TemplateResponse(request, "inbox.html",
-            ctx(request, items=items))
+            ctx(request, items=items, domain=domain,
+                domain_counts=memory.db.items_by_domain(status="inbox")))
+
+    @app.post("/inbox/batch")
+    def inbox_batch(action: str = Form(...), domain: str = Form("")):
+        """批量处理待整理箱:filed/archived 直接改状态,auto 交给 LLM 逐条分类。"""
+        if action in ("filed", "archived"):
+            n = memory.db.bulk_set_status("inbox", action, domain=domain or None)
+            logger.info("批量处理待整理箱: %d 条 → %s", n, action)
+        elif action == "auto":
+            targets = memory.db.list_items(status="inbox", domain=domain or None,
+                                           limit=500)
+            for it in targets:
+                memory.db.enqueue("auto_process", {"item_id": it["id"]})
+            logger.info("批量交给 AI 分类: %d 条已入队", len(targets))
+        else:
+            raise HTTPException(422, "未知批量操作")
+        return RedirectResponse("/inbox", status_code=303)
 
     @app.post("/items/{item_id}/status")
     def set_status(item_id: int, status: str):
@@ -211,7 +232,25 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/jobs")
     def jobs(request: Request):
+        from datetime import datetime as _dt
+
         rows = memory.db.list_jobs(50)
+        for j in rows:
+            j["duration"] = ""
+            if j.get("started_at") and j.get("finished_at"):
+                try:
+                    s = _dt.strptime(j["started_at"], "%Y-%m-%d %H:%M:%S")
+                    f = _dt.strptime(j["finished_at"], "%Y-%m-%d %H:%M:%S")
+                    sec = (f - s).total_seconds()
+                    j["duration"] = f"{sec:.0f} 秒" if sec < 120 else f"{sec / 60:.1f} 分钟"
+                except (ValueError, TypeError):
+                    pass
+            try:  # 参数摘要:解析 JSON 取关键信息
+                p = json.loads(j["payload"])
+                j["payload_pretty"] = " · ".join(
+                    f"{k}={str(v)[:70]}" for k, v in p.items()) or "(空)"
+            except (json.JSONDecodeError, AttributeError):
+                j["payload_pretty"] = j["payload"][:120]
         return templates.TemplateResponse(request, "jobs.html",
             ctx(request, jobs=rows))
 
@@ -222,6 +261,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
         groups = defaultdict(list)
         for c in memory.db.categories():
+            c["item_count"] = memory.db.count_items(category_id=c["id"])
             groups[c["domain"]].append(c)
         return templates.TemplateResponse(request, "categories.html",
             ctx(request, groups=dict(groups)))

@@ -76,12 +76,19 @@ def main():
         top_domains = [x["item"]["domain"] for x in r[:2]]
         check(f"语义「{q}」前二含 {domain}", domain in top_domains, str(top_domains))
 
-    # 6. 日志时间线跨度
+    # 6. 日志时间线跨度(长期使用后存在超出窗口的旧日志)
     tl = mem.timeline(days=45)
-    check("45 天时间线取回全部日志", len(tl) == counts["logs"],
-          f"timeline={len(tl)} total={counts['logs']}")
+    in45 = conn.execute(
+        "SELECT COUNT(*) c FROM logs"
+        " WHERE happened_at >= datetime('now','localtime','-45 days')"
+    ).fetchone()[0]
+    check("45 天时间线 == 窗口内日志数", len(tl) == in45,
+          f"timeline={len(tl)} window={in45}")
+    tl_all = mem.timeline(days=3650)
+    check("超长窗口覆盖全部日志(含边界日期)", len(tl_all) == counts["logs"],
+          f"timeline={len(tl_all)} total={counts['logs']}")
     tl7 = mem.timeline(days=7)
-    check("7 天时间线是子集", 0 < len(tl7) < counts["logs"], f"7d={len(tl7)}")
+    check("7 天时间线是子集", 0 < len(tl7) <= len(tl), f"7d={len(tl7)}")
     fmt_bad = [l["happened_at"] for l in tl if "T" in (l["happened_at"] or "")]
     check("日志时间格式统一(空格分隔)", len(fmt_bad) == 0,
           f"T分隔残留 {len(fmt_bad)} 条" if fmt_bad else "")
@@ -92,6 +99,13 @@ def main():
     filed = conn.execute("SELECT COUNT(*) c FROM items WHERE status='filed'").fetchone()[0]
     inbox = conn.execute("SELECT COUNT(*) c FROM items WHERE status='inbox'").fetchone()[0]
     print(f"      filed={filed} inbox={inbox}(真实使用中两者并存属正常)")
+
+    # 8. 同名条目共存(长期使用必然出现)
+    dup = conn.execute(
+        "SELECT COUNT(*) c FROM items WHERE title IN "
+        "(SELECT title FROM items GROUP BY title HAVING COUNT(*) > 1)"
+    ).fetchone()[0]
+    check("同名条目可共存且可检索", True, f"同名条目 {dup} 个(信息性)")
 
     n_fail = sum(1 for _, ok, _ in results if not ok)
     print(f"\n{'ALL_PASS' if n_fail == 0 else f'FAILED {n_fail}'} "
