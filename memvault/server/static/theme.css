@@ -1,23 +1,23 @@
 /* ============================================================
-   MemVault 主题:设计变量 + 组件样式
-   换主题 = 覆盖 :root 变量(+ 少量覆盖规则),结构与类名不变。
-   默认主题「清雅」:浅色、白底、靛蓝点缀。
+   MemVault 主题「flomo 暖纸」(分支 theme-flomo)
+   参考:flomo / 滴答清单浅色 — 米色纸感底、暖棕文字、
+   琥珀点缀、大圆角卡片,轻柔放松的记录氛围。
    ============================================================ */
 :root {
-  --bg: #f6f7f9;            /* 页面背景 */
-  --header-bg: #ffffff;     /* 顶栏背景 */
-  --header-border: #e8eaed; /* 顶栏下边框 */
-  --card-bg: #ffffff;       /* 卡片背景 */
-  --card-border: #e8eaed;   /* 卡片边框 */
-  --text: #1f2937;          /* 主文字 */
-  --muted: #6b7280;         /* 次要文字 */
-  --accent: #4f46e5;        /* 强调色(按钮/链接) */
-  --accent-soft: #eef2ff;   /* 强调色浅底 */
-  --accent-text: #4338ca;   /* 强调色文字 */
-  --btn-ghost-bg: #ffffff;
-  --btn-ghost-border: #d1d5db;
-  --input-border: #d1d5db;
-  --radius: 10px;
+  --bg: #faf6ef;             /* 米色纸感 */
+  --header-bg: #fffdf9;
+  --header-border: #eadfce;
+  --card-bg: #fffdf8;
+  --card-border: #eadfce;
+  --text: #4a3f35;           /* 暖棕文字 */
+  --muted: #9a8b7a;
+  --accent: #d97706;         /* 琥珀 */
+  --accent-soft: #fdf1dd;    /* 琥珀浅底 */
+  --accent-text: #b45309;
+  --btn-ghost-bg: #fffdf8;
+  --btn-ghost-border: #e0d5c0;
+  --input-border: #e0d5c0;
+  --radius: 12px;            /* 大圆角,便签感 */
 }
 
 * { box-sizing: border-box; }
@@ -26,23 +26,24 @@ body {
   margin: 0; background: var(--bg); color: var(--text);
 }
 
-/* ── 顶栏 ── */
+/* ── 顶栏:同色融入,无生硬分割 ── */
 header {
   background: var(--header-bg); color: var(--text);
   border-bottom: 1px solid var(--header-border);
-  padding: 10px 20px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  padding: 12px 20px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
   position: sticky; top: 0; z-index: 10;
 }
 header nav { display: flex; gap: 14px; }
-header a { color: var(--muted); text-decoration: none; font-size: 14px; padding: 2px 2px; }
-header a:hover { color: var(--accent); }
+header a { color: var(--muted); text-decoration: none; font-size: 14px; padding: 2px 6px; border-radius: 6px; }
+header a:hover { color: var(--accent); background: var(--accent-soft); }
 .brand { font-weight: 700; font-size: 16px; color: var(--accent); }
 
-/* ── 布局与卡片 ── */
+/* ── 布局与卡片:便签卡片 ── */
 main { max-width: 960px; margin: 20px auto; padding: 0 16px; }
 .card {
   background: var(--card-bg); border: 1px solid var(--card-border);
-  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(74, 63, 53, .04);
 }
 .card h3 { margin: 0 0 6px; font-size: 15px; }
 .card h3 a { color: var(--text); text-decoration: none; }
@@ -50,42 +51,42 @@ main { max-width: 960px; margin: 20px auto; padding: 0 16px; }
 .muted { color: var(--muted); font-size: 12px; }
 .snippet {
   font-size: 13px; color: var(--text); margin-top: 4px;
-  white-space: pre-wrap; word-break: break-all; opacity: .9;
+  white-space: pre-wrap; word-break: break-all; opacity: .92;
 }
 
 /* ── 标签 ── */
 .tag {
   display: inline-block; background: var(--accent-soft); color: var(--accent-text);
-  border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-right: 4px;
+  border-radius: 6px; padding: 1px 7px; font-size: 11px; margin-right: 4px;
 }
-.tag.gray { background: #f3f4f6; color: var(--muted); }
-.tag.warn { background: #fef3c7; color: #b45309; }
-.tag.ok   { background: #ecfdf5; color: #047857; }
-.tag.bad  { background: #fef2f2; color: #b91c1c; }
+.tag.gray { background: #f3ede2; color: var(--muted); }
+.tag.warn { background: #fdeea8; color: #8a6d1a; }
+.tag.ok   { background: #e8f2e4; color: #4a7a3a; }
+.tag.bad  { background: #fbe4e0; color: #a34a3a; }
 
 /* ── 表格 ── */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--card-border); vertical-align: top; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px dashed var(--header-border); vertical-align: top; }
 th { color: var(--muted); font-weight: 500; }
 
 /* ── 表单控件 ── */
 button {
-  background: var(--accent); color: #fff; border: 0; border-radius: 6px;
-  padding: 5px 12px; font-size: 13px; cursor: pointer;
+  background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+  padding: 5px 13px; font-size: 13px; cursor: pointer;
 }
-button:hover { opacity: .9; }
+button:hover { opacity: .88; }
 button.ghost { background: var(--btn-ghost-bg); color: var(--text); border: 1px solid var(--btn-ghost-border); }
 input[type=search], input[type=text], select, textarea {
-  padding: 6px 10px; border: 1px solid var(--input-border); border-radius: 6px;
+  padding: 6px 10px; border: 1px solid var(--input-border); border-radius: 8px;
   background: var(--card-bg); color: var(--text); font-size: 13px;
 }
 input[type=search]:focus, input[type=text]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 
 /* ── 杂项 ── */
-.ts { font-family: Consolas, monospace; background: #f3f4f6; border-radius: 4px; padding: 0 4px; font-size: 12px; }
+.ts { font-family: Consolas, monospace; background: #f3ede2; border-radius: 4px; padding: 0 4px; font-size: 12px; }
 .jump { font-size: 12px; color: var(--accent); text-decoration: none; }
 .jump:hover { text-decoration: underline; }
-img.thumb { max-width: 180px; border-radius: 6px; border: 1px solid var(--card-border); display: block; margin-top: 6px; }
+img.thumb { max-width: 180px; border-radius: 8px; border: 1px solid var(--card-border); display: block; margin-top: 6px; }
 .chips { display: flex; gap: 10px; margin-bottom: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
 .chips b { color: var(--text); }
 form.inline { display: inline; }
