@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -63,12 +63,6 @@ class CaptureReq(BaseModel):
 class ChatReq(BaseModel):
     message: str
     skill: str = "general"
-
-
-class SourceAddReq(BaseModel):
-    kind: Literal["bili_up"]
-    target: str
-    domain: Optional[str] = None
 
 
 def create_app(cfg: dict | None = None, memory: Memory | None = None,
@@ -231,7 +225,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             ctx(request, groups=dict(groups)))
 
     @app.post("/categories/add")
-    def categories_add(domain: str, name: str):
+    def categories_add(domain: str = Form(...), name: str = Form(...)):
         name = name.strip()[:40]
         if not name:
             raise HTTPException(422, "分类名不能为空")
@@ -291,15 +285,16 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             ctx(request, sources=memory.db.watch_sources()))
 
     @app.post("/sources/add")
-    def sources_add(req: SourceAddReq):
+    def sources_add(kind: str = Form(...), target: str = Form(...),
+                    domain: str = Form("general")):
         from memvault.sources import bili_watch
 
-        mid = bili_watch.parse_mid(req.target)
+        mid = bili_watch.parse_mid(target)
         if not mid:
             raise HTTPException(422, "无法解析 UP主 UID(需 UID 或 space 链接)")
         label = bili_watch.up_name(mid)
-        memory.db.add_watch_source(req.kind, mid,
-                                   domain=req.domain or "general", label=label)
+        memory.db.add_watch_source(kind, mid,
+                                   domain=domain or "general", label=label)
         return RedirectResponse("/sources", status_code=303)
 
     @app.post("/sources/{source_id}/toggle")

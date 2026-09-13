@@ -167,7 +167,7 @@ def api_client(tmp_path):
 def test_panel_categories_flow(api_client):
     client, app = api_client
     r = client.post("/categories/add",
-                    params={"domain": "fitness", "name": "胸部"},
+                    data={"domain": "fitness", "name": "胸部"},
                     follow_redirects=False)
     assert r.status_code == 303
     page = client.get("/categories")

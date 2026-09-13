@@ -153,7 +153,7 @@ def api(tmp_path, monkeypatch):
 
 def test_panel_sources_flow(api):
     client, app, _ = api
-    r = client.post("/sources/add", json={"kind": "bili_up", "target": "8888",
+    r = client.post("/sources/add", data={"kind": "bili_up", "target": "8888",
                                           "domain": "fitness"},
                     follow_redirects=False)
     assert r.status_code == 303
