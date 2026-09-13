@@ -12,6 +12,6 @@ frames:
   scene_threshold: 0.45
 bili:
   quality: 64          # 64=720P, 80=1080P
-  cookies_path: null   # cookies.txt 路径,高清/会员视频需要
+  cookies_path: D:\Code\MemVault\config\cookies.txt
 keep_video: false      # 入库后是否保留视频原文件(帧图始终保留)
 data_dir: null         # null = <项目>/data;可用环境变量 MEMVAULT_DATA_DIR 覆盖

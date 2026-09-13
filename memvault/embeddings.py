@@ -8,8 +8,10 @@ import hashlib
 import logging
 import os
 
-# 国内镜像,必须在 import transformers/sentence_transformers 之前设置
+# 国内镜像,必须在 import transformers/sentence_transformers 之前设置;
+# HF_HUB_DISABLE_XET:Xet 存储的 CAS 接口镜像无法代理(401)
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import numpy as np
 

@@ -104,6 +104,8 @@ def extract_item(memory, llm, pstore, item_id: int) -> dict:
         )[:2000]
     resp = llm.chat_json(system, f"条目标题:{item['title']}\n条目内容:\n{text[:3000]}")
 
+    # 合并进现有 attrs(保护 ingest_product 预写的价格/图片等字段);
+    # LLM 返回 null 的键不写入
     merged = {}
     try:
         merged.update(json.loads(item.get("attrs_json") or "{}"))

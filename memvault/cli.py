@@ -76,6 +76,14 @@ def cmd_stats(_args):
         print(f"{k:>12}: {v}")
 
 
+def cmd_reindex(_args):
+    """用当前嵌入模型重建全部文本向量(换模型/修复降级后用)。"""
+    cfg = load_config()
+    _, mem = build_memory(cfg)
+    n = mem.reindex_text(progress=lambda m: print(f"\r{m}", end="", flush=True))
+    print(f"\n重嵌入完成: {n} 个文本块")
+
+
 def cmd_serve(_args):
     """启动 API + 面板(无托盘,适合服务器/调试)。"""
     import uvicorn
@@ -146,6 +154,8 @@ def main(argv=None):
     pq.set_defaults(fn=cmd_query)
 
     sub.add_parser("stats", help="库统计").set_defaults(fn=cmd_stats)
+
+    sub.add_parser("reindex", help="重建全部文本向量").set_defaults(fn=cmd_reindex)
 
     ps = sub.add_parser("serve", help="启动 API+面板(无托盘)")
     ps.set_defaults(fn=cmd_serve)

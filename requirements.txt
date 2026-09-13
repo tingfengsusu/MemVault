@@ -1,7 +1,9 @@
 # MemVault M1 核心依赖
+# 注意:transformers 5.x 与 bge 等老模型仓库不兼容(processing class 报错),必须 4.x
 chromadb>=0.5.0
 faster-whisper>=1.0.0
-sentence-transformers>=3.0
+sentence-transformers==3.3.1
+transformers==4.51.3
 opencv-python>=4.8
 numpy
 pillow

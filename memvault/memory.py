@@ -168,6 +168,40 @@ class Memory:
     def get_item(self, item_id: int) -> dict | None:
         return self.db.get_item(item_id)
 
+    def reindex_text(self, batch_size: int = 64, progress=None) -> int:
+        """用当前嵌入模型重建全部文本块向量(换模型/修复降级后用)。"""
+        rows = self.db._rows(self.db._conn().execute(
+            "SELECT id, item_id, content FROM chunks"
+            " WHERE modality='text' AND content IS NOT NULL"
+        ))
+        done = 0
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i + batch_size]
+            items = self.db.get_items(list({b["item_id"] for b in batch}))
+            ids, metas, docs = [], [], []
+            for b in batch:
+                item = items[b["item_id"]]
+                meta = {"item_id": b["item_id"], "domain": item["domain"],
+                        "type": item["type"],
+                        "category_id": item["category_id"],
+                        "source_type": item["source_type"],
+                        "start_ts": None}
+                meta = {k: v for k, v in meta.items() if v is not None}
+                ids.append(b["id"])
+                metas.append(meta)
+                docs.append(b["content"])
+            vecs = self.embedder.encode(docs)
+            self.vs.upsert_text(ids, vecs, docs, metas)
+            self.db._conn().executemany(
+                "UPDATE chunks SET embed_status='done' WHERE id=?",
+                [(cid,) for cid in ids],
+            )
+            self.db._conn().commit()
+            done += len(batch)
+            if progress:
+                progress(f"reindex {done}/{len(rows)}")
+        return done
+
     def stats(self) -> dict:
         return self.db.stats()
 

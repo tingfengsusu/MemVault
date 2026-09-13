@@ -2,8 +2,10 @@
 import logging
 import os
 
-# faster-whisper 模型经 huggingface_hub 下载,国内镜像提前设置
+# faster-whisper 模型经 huggingface_hub 下载,国内镜像提前设置;
+# HF_HUB_DISABLE_XET:Xet 存储的 CAS 接口镜像无法代理(401),强制经典下载
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 logger = logging.getLogger(__name__)
 
