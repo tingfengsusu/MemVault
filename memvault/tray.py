@@ -86,6 +86,12 @@ def run(cfg: dict | None = None):
                      kwargs={"stop": stop_event.is_set, "poll_seconds": 2.0},
                      daemon=True, name="memvault-worker").start()
 
+    from memvault.scheduler import run_scheduler
+
+    threading.Thread(target=run_scheduler, args=(memory, cfg),
+                     kwargs={"stop": stop_event.is_set},
+                     daemon=True, name="memvault-scheduler").start()
+
     # 等服务就绪
     for _ in range(40):
         if already_running(cfg):

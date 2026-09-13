@@ -383,3 +383,9 @@ SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources)
 - **提示词系统** `memvault/prompts.py`:版本化(new_version 自动退役旧 active、rollback 回滚)、种子 router/extract 提示词、add_feedback(质疑入库 + 向量化进 feedback collection,metadata 带 category_id)、similar_critiques(同分类语义召回历史质疑)、rewrite_from_feedback(无专属版先从通用分叉 v1 → LLM 基于当前提示词+出错样例+历史质疑改写 → 新版本 origin=feedback)。
 - **接入**:采集成功自动排队 auto_process(带去重键);面板新增分类管理页(增分类/确认提议)、条目详情显示分类与置信度 + "重新分析"按钮;分类未确认前不参与路由选择题。
 - 测试 34 例(路由三分支/提取合并/版本回滚/质疑改写/分叉/LLM 未配置跳过/自动排队/面板分类流)。DeepSeek 连通性已真机验证。
+
+### 13.7 M3b 落地记录(订阅采集 + 对话式录入)
+
+- **订阅** `memvault/scheduler.py` + `sources/bili_watch.py`:watch_sources 三类操作(添加含 UP主昵称解析/启停/立即检查);调度线程按时间桶给启用源排 watch_check 任务(去重),worker 执行。适配器:wbi 签名 + buvid 预热 + dm 指纹参数;**B站对匿名访问投稿列表已全面风控(-352/-799),实测 spi/ExClimbWuzhi/legacy 接口均不可用,最终方案为用户登录 cookies.txt**(config.bili.cookies_path,与下载器共用),错误信息带配置指引。首次检查只登记历史(seed 成 done 任务),此后增量。
+- **聊天** `memvault/chat.py`:一轮 = LLM 抽取(profile 键值 / log 事件 / search_query)→ 持久化画像与日志 → memory.search 组装个人上下文 → 按技能(general/fitness/shopping)提示词生成回复。面板 /chat 页消息不落盘,抽取结果落盘;LLM 未配置返回 503。
+- **托盘/serve** 均已启动调度线程;测试 45 例(wbi 确定性/UID 解析/首查登记/增量去重/时间桶/聊天抽取持久化/面板流)。

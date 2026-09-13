@@ -17,3 +17,14 @@ def memory(tmp_path):
     db = Database(tmp_path / "test.db")
     vs = VectorStore(tmp_path / "chroma")
     return Memory(db, vs, FakeTextEmbedder())
+
+
+@pytest.fixture()
+def cfg(tmp_path):
+    from memvault.config import load_config
+
+    cfg = load_config()
+    cfg["data_dir"] = str(tmp_path)
+    cfg["embedding"]["fake"] = True
+    cfg["llm"] = dict(cfg["llm"], api_key=None)
+    return cfg

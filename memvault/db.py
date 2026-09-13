@@ -148,6 +148,8 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN category_conf REAL")
         if not has_col("items", "auto_note"):
             conn.execute("ALTER TABLE items ADD COLUMN auto_note TEXT")
+        if not has_col("watch_sources", "label"):
+            conn.execute("ALTER TABLE watch_sources ADD COLUMN label TEXT")
         conn.commit()
 
     # ── 连接管理 ──────────────────────────────────────────────────────
@@ -402,6 +404,49 @@ class Database:
             (category_id, conf, note, item_id),
         )
         conn.commit()
+
+    # ── 订阅源(M3b)──────────────────────────────────────────────────
+    def add_watch_source(self, kind, target, domain=None, enabled=True,
+                         label=None) -> int:
+        cur = self._conn().execute(
+            "INSERT INTO watch_sources(kind, target, domain, enabled, label)"
+            " VALUES(?,?,?,?,?)", (kind, target, domain, int(enabled), label),
+        )
+        self._conn().commit()
+        return cur.lastrowid
+
+    def get_watch_source(self, source_id: int) -> dict | None:
+        row = self._conn().execute(
+            "SELECT * FROM watch_sources WHERE id=?", (source_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def watch_sources(self, enabled_only=False) -> list[dict]:
+        sql = "SELECT * FROM watch_sources"
+        if enabled_only:
+            sql += " WHERE enabled=1"
+        return self._rows(self._conn().execute(sql + " ORDER BY id"))
+
+    def toggle_watch_source(self, source_id: int):
+        conn = self._conn()
+        conn.execute("UPDATE watch_sources SET enabled=1-enabled WHERE id=?",
+                     (source_id,))
+        conn.commit()
+
+    def touch_watch_source(self, source_id: int):
+        from datetime import datetime
+
+        conn = self._conn()
+        conn.execute(
+            "UPDATE watch_sources SET last_checked=? WHERE id=?",
+            (datetime.now().isoformat(timespec="seconds"), source_id),
+        )
+        conn.commit()
+
+    def job_exists(self, dedup_key: str) -> bool:
+        return self._conn().execute(
+            "SELECT 1 FROM jobs WHERE dedup_key=?", (dedup_key,)
+        ).fetchone() is not None
 
     def categories(self, domain=None) -> list[dict]:
         sql = "SELECT * FROM categories"

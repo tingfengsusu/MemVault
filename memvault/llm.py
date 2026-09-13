@@ -68,27 +68,30 @@ class LLMClient:
             logger.warning("未配置 LLM api_key,自动分类/提取将跳过"
                            "(设置环境变量 DEEPSEEK_API_KEY 或 config.llm.api_key)")
 
-    def chat(self, system: str, user: str, max_tokens: int = 2000) -> str:
+    def chat(self, system: str, user: str, max_tokens: int = 2000,
+             json_mode: bool = False) -> str:
         if not self.enabled:
             raise RuntimeError("LLM 未配置")
+        body = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": user}],
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
         r = requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "messages": [{"role": "system", "content": system},
-                             {"role": "user", "content": user}],
-                "temperature": self.temperature,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-            },
+            json=body,
             timeout=90,
         )
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
     def chat_json(self, system: str, user: str, max_tokens: int = 2000) -> dict:
-        text = self.chat(system, user, max_tokens=max_tokens)
+        text = self.chat(system, user, max_tokens=max_tokens, json_mode=True)
         try:
             return json.loads(text)
         except json.JSONDecodeError:

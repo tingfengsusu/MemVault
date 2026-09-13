@@ -60,6 +60,17 @@ class CaptureReq(BaseModel):
     video: Optional[dict] = None
 
 
+class ChatReq(BaseModel):
+    message: str
+    skill: str = "general"
+
+
+class SourceAddReq(BaseModel):
+    kind: Literal["bili_up"]
+    target: str
+    domain: Optional[str] = None
+
+
 def create_app(cfg: dict | None = None, memory: Memory | None = None,
                start_worker: bool = False) -> FastAPI:
     cfg = cfg or load_config()
@@ -81,10 +92,13 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
               name="media")
 
     if start_worker:
+        from memvault.scheduler import run_scheduler
         from memvault.worker import run_worker
 
         threading.Thread(target=run_worker, args=(memory, cfg),
                          daemon=True, name="memvault-worker").start()
+        threading.Thread(target=run_scheduler, args=(memory, cfg),
+                         daemon=True, name="memvault-scheduler").start()
 
     # ── 采集 API(浏览器插件 / 热键 / 其他工具)──────────────────────
     @app.get("/api/health")
@@ -235,5 +249,61 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             raise HTTPException(404)
         memory.db.enqueue("auto_process", {"item_id": item_id})
         return RedirectResponse(f"/items/{item_id}", status_code=303)
+
+    # ── 聊天(M3b:对话式画像/日志录入 + 问答)──────────────────────
+    from memvault.llm import LLMClient
+
+    app.state.llm = LLMClient(cfg)
+
+    @app.get("/chat")
+    def chat_page(request: Request):
+        return templates.TemplateResponse(request, "chat.html", ctx(request))
+
+    @app.post("/api/chat")
+    def api_chat(req: ChatReq):
+        llm = app.state.llm
+        if not llm.enabled:
+            raise HTTPException(503, "LLM 未配置(设置 DEEPSEEK_API_KEY 后重启)")
+        from memvault.chat import chat_turn
+
+        try:
+            return chat_turn(memory, llm, req.message, req.skill or "general")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except Exception as e:  # noqa: BLE001 — 上游 API 异常转 502
+            logger.exception("聊天处理失败")
+            raise HTTPException(502, f"LLM 调用失败: {e}")
+
+    # ── 订阅管理(M3b)────────────────────────────────────────────────
+    @app.get("/sources")
+    def sources_page(request: Request):
+        return templates.TemplateResponse(request, "sources.html",
+            ctx(request, sources=memory.db.watch_sources()))
+
+    @app.post("/sources/add")
+    def sources_add(req: SourceAddReq):
+        from memvault.sources import bili_watch
+
+        mid = bili_watch.parse_mid(req.target)
+        if not mid:
+            raise HTTPException(422, "无法解析 UP主 UID(需 UID 或 space 链接)")
+        label = bili_watch.up_name(mid)
+        memory.db.add_watch_source(req.kind, mid,
+                                   domain=req.domain or "general", label=label)
+        return RedirectResponse("/sources", status_code=303)
+
+    @app.post("/sources/{source_id}/toggle")
+    def sources_toggle(source_id: int):
+        if not memory.db.get_watch_source(source_id):
+            raise HTTPException(404)
+        memory.db.toggle_watch_source(source_id)
+        return RedirectResponse("/sources", status_code=303)
+
+    @app.post("/sources/{source_id}/check")
+    def sources_check(source_id: int):
+        if not memory.db.get_watch_source(source_id):
+            raise HTTPException(404)
+        memory.db.enqueue("watch_check", {"source_id": source_id})
+        return RedirectResponse("/sources", status_code=303)
 
     return app

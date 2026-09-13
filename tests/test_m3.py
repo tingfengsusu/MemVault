@@ -8,16 +8,6 @@ from memvault.pipeline.auto import auto_process
 from memvault.prompts import PromptStore
 
 
-@pytest.fixture()
-def cfg(tmp_path):
-    from memvault.config import load_config
-
-    cfg = load_config()
-    cfg["data_dir"] = str(tmp_path)
-    cfg["embedding"]["fake"] = True
-    return cfg
-
-
 class StubLLM:
     enabled = True
 

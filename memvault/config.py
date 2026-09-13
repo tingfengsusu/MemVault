@@ -26,6 +26,7 @@ DEFAULTS = {
         "temperature": 0.1,
         "classify_confidence": 0.8,
     },
+    "watch": {"interval_minutes": 30, "max_per_check": 10},
 }
 
 
