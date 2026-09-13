@@ -158,3 +158,44 @@ def test_item_detail_bili_jump(env):
     html = client.get(f"/items/{item_id}").text
     assert "01:15" in html
     assert "https://www.bilibili.com/video/BV1xx411c7mD?t=75" in html
+
+
+def test_inbox_batch_actions(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from memvault import llm as llm_mod
+    from memvault.config import load_config
+    from memvault.server.app import create_app
+
+    monkeypatch.setattr(llm_mod, "_VIDEO2SHOP_CONFIG", tmp_path / "no.yaml")
+    monkeypatch.setattr(llm_mod, "PROJECT_ROOT", tmp_path)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    cfg = load_config()
+    cfg["data_dir"] = str(tmp_path)
+    cfg["embedding"]["fake"] = True
+    cfg["llm"] = dict(cfg["llm"], api_key=None)
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        mem = app.state.memory
+        for i in range(3):
+            mem.add_item("cooking", "page", f"待整理{i}", content_text=f"内容{i}")
+        mem.add_item("fitness", "page", "健身条目", content_text="内容f")
+
+        # 批量已归类(限 cooking 领域)
+        r = client.post("/inbox/batch", data={"action": "filed", "domain": "cooking"}, follow_redirects=False)
+        assert r.status_code == 303
+        assert mem.db.count_items(status="filed", domain="cooking") == 3
+        assert mem.db.count_items(status="inbox", domain="fitness") == 1
+
+        # 批量交给 AI:入队 auto_process
+        client.post("/inbox/batch", data={"action": "auto"}, follow_redirects=False)
+        n = mem.db._conn().execute(
+            "SELECT COUNT(*) c FROM jobs WHERE type='auto_process'").fetchone()["c"]
+        assert n >= 1
+
+        # 批量归档剩余
+        client.post("/inbox/batch", data={"action": "archived"}, follow_redirects=False)
+        assert mem.db.count_items(status="inbox") == 0
+
+        assert client.post("/inbox/batch", follow_redirects=False,
+                           data={"action": "bad"}).status_code == 422
