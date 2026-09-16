@@ -189,3 +189,18 @@ def test_panel_chat_with_stub(api):
     r = client.post("/api/chat", json={"message": "在吗", "skill": "general"})
     assert r.status_code == 200
     assert r.json()["reply"] == "收到!"
+
+
+def test_get_up_latest_fallback(monkeypatch):
+    """wbi 主通道被风控时自动降级 series 通道。"""
+    from memvault.sources import bili_watch
+
+    monkeypatch.setattr(bili_watch, "_session", lambda p=None: object())
+    monkeypatch.setattr(bili_watch, "_get_latest_wbi",
+                        lambda s, mid, limit: (_ for _ in ()).throw(
+                            RuntimeError("wbi 通道 code=-352: 风控校验失败")))
+    monkeypatch.setattr(bili_watch, "_get_latest_series",
+                        lambda s, mid, limit: [{"bvid": "BV1x", "title": "t",
+                                                "created": 1}])
+    videos = bili_watch.get_up_latest("123", 5)
+    assert videos[0]["bvid"] == "BV1x"
