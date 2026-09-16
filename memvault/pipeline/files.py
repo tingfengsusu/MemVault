@@ -87,14 +87,27 @@ def capture_from_clipboard(memory, cfg: dict) -> dict:
 
     if content.startswith("http"):
         # URL:视频站直接走视频采集,其余做页面采集(正文由 M3 服务端抓取,M2 先存 URL 摘录)
+        import hashlib
+
         is_video = any(h in content for h in ("bilibili.com/video", "b23.tv"))
         if is_video:
-            memory.db.enqueue("ingest_video", {"source": content}, dedup_key=None)
+            key = hashlib.sha1(("video|" + content).encode()).hexdigest()[:16]
+            memory.db.enqueue("ingest_video", {"source": content}, dedup_key=key)
             return {"ok": True, "kind": "video", "detail": content[:60]}
+        key = hashlib.sha1(("link|" + content).encode()).hexdigest()[:16]
         memory.db.enqueue("ingest_text", {"title": content[:60], "url": content,
-                                          "text": f"链接:{content}"})
+                                          "text": f"链接:{content}"},
+                          dedup_key=key)
         return {"ok": True, "kind": "link", "detail": content[:60]}
 
+    # 纯文本:内容哈希去重(同一段文字连按热键不会重复入库)
+    import hashlib
+
+    key = hashlib.sha1(("text|" + content).encode()).hexdigest()[:16]
+    title = content.strip().splitlines()[0].strip()[:40] or "剪贴板摘录"
+    existed = memory.db.job_exists(key)
     memory.db.enqueue("ingest_text",
-                      {"title": content[:40], "text": content, "kind": "selection"})
-    return {"ok": True, "kind": "text", "detail": content[:40]}
+                      {"title": title, "text": content, "kind": "selection"},
+                      dedup_key=key)
+    return {"ok": True, "kind": "text",
+            "detail": ("已采集过(去重):" if existed else "") + title}

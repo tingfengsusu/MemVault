@@ -106,3 +106,32 @@ SQLite integrity_check / 条目与日志规模 / 向量数==文本块数 / 嵌�
 1. 重跑体检:`.venv/Scripts/python scripts/check_integrity.py`(应 ALL_PASS)
 2. 再造一批数据:`.venv/Scripts/python scripts/gen_longterm.py`(幂等可重复)
 3. 查看体检历史:本文件按日期追加;每次 ALL_PASS/FAIL 均有记录
+
+---
+
+## 2026-09-17 真实使用发现的问题(用户实测)
+
+### 背景
+
+用户实际使用中:插件采集 B站视频成功(BV1ZXbw61EfQ → 161 语义块完整入库,
+**插件→视频管线全链路首次真实跑通**);热键测试发现重复;订阅在运行两天后全部失败。
+
+### 本轮问题与解决
+
+| # | 问题 | 根因 | 解决方式 | 验证 |
+|---|---|---|---|---|
+| 6 | 热键文本采集连按 3 次产生 3 条重复条目 | `capture_from_clipboard` 的文本/链接分支没有 dedup_key | 内容 sha1 做 dedup_key(文本/链接/视频三条路径);标题取首行避免 `\r\n` 混入 | 单测 + 3 条重复条目已归档 |
+| 7 | 订阅检查从 09-16 13:41 起全部 `-352 风控校验失败` | ①`bili_ticket` 3 天到期(过期时间 1789527892 恰好对应失败起点)②wbi 投稿接口对账号/IP 出现临时风控 | ①补 `bili_ticket` 自动续签(GenWebTicket 接口,**必须 POST**——GET 返回 405 是排查中踩的坑)②新增 **series 降级通道**:`x/series/recArchivesByKeywords`(免 wbi、风控宽松),主通道失败自动切换 | 真机:降级通道拉到 5 条投稿;job #56 done |
+
+### 诊断过程记录(供复查)
+
+1. 失败时间与 `bili_ticket_expires`(1789527892 ≈ 09-16 13:44)吻合 → 判定票据过期;
+2. 续签接口 405 → 改 POST 后 code 0 拿到票据,但投稿接口**仍 -352**
+   → 另有账号/IP 维度风控,非代码可绕;
+3. 测试备选接口 `recArchivesByKeywords` 返回 code 0 且含完整视频列表
+   (bvid/title/pubdate) → 实现自动降级,问题解决。
+
+### 当前订阅状态
+
+主通道(wbi)仍受风控;系统自动走 series 通道,功能正常。
+建议:不用重复点"立即检查"(风控可能加剧);30 分钟自动检查足够。
