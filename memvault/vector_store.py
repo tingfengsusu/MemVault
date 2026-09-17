@@ -56,6 +56,19 @@ class VectorStore:
             for cid, d, m in zip(ids, distances, metadatas)
         ]
 
+    def delete_by_item_ids(self, item_ids: list[int]):
+        """删除这些条目在文本/图像向量库中的全部向量(条目重采集时清理)。"""
+        if not item_ids:
+            return
+        where = {"item_id": {"$in": list(item_ids)}}
+        for coll in (self.text, self.image if self._image else None):
+            if coll is None:
+                continue
+            try:
+                coll.delete(where=where)
+            except Exception as e:  # noqa: BLE001 — 空集合等场景容错
+                logger.warning("向量删除失败(%s): %s", coll.name, e)
+
     def count_text(self) -> int:
         return self.text.count()
 

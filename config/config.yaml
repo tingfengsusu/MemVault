@@ -3,7 +3,7 @@ embedding:
   fake: false
 asr:
   model: small
-  device: cpu
+  device: auto         # auto=有GPU用GPU(快10倍+),否则CPU
   compute_type: int8
 frames:
   max_frames: 16

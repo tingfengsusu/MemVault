@@ -588,6 +588,18 @@ class Database:
         sql += " GROUP BY domain ORDER BY c DESC"
         return self._rows(self._conn().execute(sql, args))
 
+    def delete_items_by_source_ref(self, source_ref: str) -> list[int]:
+        """按来源删除条目(chunks 级联),返回被删条目 id(用于清理向量)。"""
+        conn = self._conn()
+        rows = conn.execute("SELECT id FROM items WHERE source_ref=?",
+                            (source_ref,)).fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            marks = ",".join("?" * len(ids))
+            conn.execute(f"DELETE FROM items WHERE id IN ({marks})", ids)
+            conn.commit()
+        return ids
+
     def set_item_status(self, item_id: int, status: str):
         conn = self._conn()
         conn.execute("UPDATE items SET status=? WHERE id=?", (status, item_id))

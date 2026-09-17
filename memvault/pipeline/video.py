@@ -67,6 +67,13 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
     stem = video_path.stem
     source_ref = source if _is_bv(source) else str(video_path.resolve())
 
+    # 幂等:同一来源重跑(中断恢复/重复采集)时先清理旧条目及其向量,
+    # 避免中断重试产生重复条目
+    old_ids = memory.db.delete_items_by_source_ref(source_ref)
+    if old_ids:
+        memory.vs.delete_by_item_ids(old_ids)
+        progress(f"清理同源旧条目 {old_ids}(中断重跑)")
+
     # 2) 建条目(原始 chunk 入库前先占位,保证"先入库后提取")
     item_id = memory.add_item(
         domain=domain, type_="video", title=stem,
