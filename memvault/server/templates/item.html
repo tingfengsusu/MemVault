@@ -55,6 +55,18 @@
   </div>
 </div>
 
+{% if related %}
+<div class="card">
+  <p class="muted" style="margin:0 0 6px">🔗 相关条目(向量相似度自动链接)</p>
+  {% for r in related %}
+  <div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--card-border)">
+    <a class="jump" href="/items/{{ r.id }}" style="font-size:13px">{{ r.title }}</a>
+    <span class="muted">相似度 {{ '%.2f'|format(r.score) }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <h3 style="margin:18px 0 10px">语义块({{ item.chunks|length }})</h3>
 <div class="card">
   {% for c in item.chunks %}

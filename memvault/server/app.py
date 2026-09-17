@@ -37,6 +37,23 @@ def _from_json_attr(s):
 templates.env.filters["from_json_attr"] = _from_json_attr
 
 BV_RE = re.compile(r"(BV[0-9A-Za-z]{10})")
+_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+
+
+def thumb_url(item: dict, media_root) -> str | None:
+    """条目的第一张图片 → /media 可访问 URL(卡片缩略图)。"""
+    try:
+        paths = json.loads(item.get("media_paths") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return None
+    for p in paths:
+        if Path(p).suffix.lower() in _IMG_EXT:
+            try:
+                return "/media/" + str(
+                    Path(p).relative_to(media_root)).replace("\\", "/")
+            except ValueError:
+                continue
+    return None
 
 
 def bili_jump(source_ref: str | None, start_ts) -> str | None:
@@ -161,6 +178,11 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         stats = memory.db.stats()
         items = memory.db.list_items(domain=domain or None,
                                      limit=50, offset=(page - 1) * 50)
+        md = media_dir(cfg)
+        related_map = memory.db.links_for_items([it["id"] for it in items])
+        for it in items:
+            it["related"] = related_map.get(it["id"], [])
+            it["thumb"] = thumb_url(it, md)
         return templates.TemplateResponse(request, "index.html",
             ctx(request, stats=stats, items=items, domain=domain, page=page,
                 domain_counts=memory.db.items_by_domain()))
@@ -240,6 +262,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             raise HTTPException(404)
         cat = memory.db.get_category(item["category_id"]) \
             if item.get("category_id") else None
+        related = memory.db.links_for_items([item_id]).get(item_id, [])
         md = media_dir(cfg)
         for c in item["chunks"]:
             c["jump"] = bili_jump(item["source_ref"], c.get("start_ts"))
@@ -251,7 +274,8 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
                 except ValueError:
                     c["media_url"] = None
         return templates.TemplateResponse(request, "item.html",
-            ctx(request, item=item, category_name=cat["name"] if cat else None))
+            ctx(request, item=item, category_name=cat["name"] if cat else None,
+                related=related))
 
     @app.get("/jobs")
     def jobs(request: Request):

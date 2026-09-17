@@ -50,9 +50,10 @@ class VectorStore:
         )
         ids = res.get("ids", [[]])[0]
         distances = res.get("distances", [[]])[0]
+        metadatas = res.get("metadatas", [[]])[0]
         return [
-            {"chunk_id": int(cid), "distance": d}
-            for cid, d in zip(ids, distances)
+            {"chunk_id": int(cid), "distance": d, "metadata": m or {}}
+            for cid, d, m in zip(ids, distances, metadatas)
         ]
 
     def count_text(self) -> int:
