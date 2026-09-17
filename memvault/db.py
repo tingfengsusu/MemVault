@@ -110,6 +110,18 @@ CREATE TABLE IF NOT EXISTS watch_sources (
   last_checked TEXT,
   created_at   TEXT DEFAULT (datetime('now', 'localtime'))
 );
+
+-- 条目间双链(规范化存储:item_a < item_b,查询时双向匹配)
+CREATE TABLE IF NOT EXISTS links (
+  id         INTEGER PRIMARY KEY,
+  item_a     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  item_b     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  score      REAL NOT NULL,
+  created_at TEXT DEFAULT (datetime('now', 'localtime')),
+  UNIQUE(item_a, item_b)
+);
+CREATE INDEX IF NOT EXISTS idx_links_a ON links(item_a);
+CREATE INDEX IF NOT EXISTS idx_links_b ON links(item_b);
 """
 
 
@@ -470,6 +482,48 @@ class Database:
         return self._conn().execute(
             "SELECT 1 FROM jobs WHERE dedup_key=?", (dedup_key,)
         ).fetchone() is not None
+
+    # ── 双链(相关条目)────────────────────────────────────────────────
+    def set_links(self, item_id: int, related: list[tuple[int, float]]):
+        """整体替换某个条目的链接(幂等:重新计算不会累积)。"""
+        conn = self._conn()
+        conn.execute("DELETE FROM links WHERE item_a=? OR item_b=?", (item_id, item_id))
+        for rid, score in related:
+            a, b = (item_id, rid) if item_id < rid else (rid, item_id)
+            conn.execute(
+                "INSERT OR REPLACE INTO links(item_a, item_b, score)"
+                " VALUES(?,?,?)", (a, b, round(float(score), 4)))
+        conn.commit()
+
+    def links_for_items(self, item_ids: list[int], limit_per: int = 3) -> dict[int, list[dict]]:
+        """批量取一组条目的相关条目 {item_id: [{id, title, score}...]}。"""
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = self._rows(self._conn().execute(
+            f"SELECT * FROM links WHERE item_a IN ({marks}) OR item_b IN ({marks})",
+            item_ids + item_ids))
+        out: dict[int, list[dict]] = {}
+        need_titles = set()
+        for r in rows:
+            for me, other in ((r["item_a"], r["item_b"]), (r["item_b"], r["item_a"])):
+                if me in item_ids:
+                    out.setdefault(me, []).append(
+                        {"id": other, "score": r["score"]})
+                    need_titles.add(other)
+        titles = {}
+        if need_titles:
+            tmarks = ",".join("?" * len(need_titles))
+            for r in self._conn().execute(
+                    f"SELECT id, title FROM items WHERE id IN ({tmarks})",
+                    list(need_titles)):
+                titles[r["id"]] = r["title"]
+        for lst in out.values():
+            for x in lst:
+                x["title"] = titles.get(x["id"], f"#{x['id']}")
+            lst.sort(key=lambda x: -x["score"])
+            del lst[limit_per:]
+        return out
 
     def categories(self, domain=None) -> list[dict]:
         sql = "SELECT * FROM categories"
