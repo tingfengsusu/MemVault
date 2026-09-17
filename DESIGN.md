@@ -395,3 +395,13 @@ SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources)
 - **技能化** `memvault/skills/builtin.py`:SkillSpec = 提示词 + 日志过滤(domain/天数) + 检索过滤(search_kwargs)。general/fitness/shopping 三个内置技能;fitness/shopping 检索限定自身领域,通用技能不过滤;chat.py 改为按技能取检索策略与提示词,新增领域只加一个 SkillSpec。
 - **执行层** `memvault/automation/`:JdHandler 整体移植自 Video2Shop(690 行,零内部依赖,Playwright CDP 接管 Chrome:搜索"{关键词} 自营"→点第一结果加购→重试与确认)。安全边界:**加购仅由用户在面板商品详情页点击"🛒 加入京东购物车"触发**,入 jd_cart 队列由 worker 执行,LLM/对话永远不能自动下单;失败(含京东未登录 5 分钟超时)在任务页可见。
 - 测试 51 例(技能注册/领域过滤/通用不过滤/加购成功与失败/端点与模板)。
+
+### 13.9 真实数据复核修复(2026-09-17)
+
+真实库(7 epub + 5 视频)暴露的缺陷修复,详见 `docs/testing-log.md` 同日记录:
+
+- **提取正文覆盖** `classify._extraction_text`:长文不再截前 3000 字,改「开头 40% + 中段均匀抽样 + 结尾整段」,总量仍受预算约束。长视频(1.6 万字)的属性/结论此前只覆盖 18%,现覆盖全文(真实复验新增「核心结论」「风险与2026展望」「结论」等条目尾部信息)。
+- **分类提议解析** `classify`:①弱措辞(「属于X类」)也能解析;②显式点名(结构化字段或「新建/归入」措辞)不再受置信度阈值限制,弱措辞仍守 0.5;③`same_category_name` 把"仅差一个泛化词尾"的名字视为同一桶(「影视解读」/「影视解读范畴」),从源头杜绝近义重复分类;`scripts/dedupe_categories.py` 同步支持变体合并,并优先保留更干净(更短)的名字。
+- **推理模型 JSON 预算** `llm.chat_json`:2000→4000→8000 逐级升(此前只重试一次到 4000),真实数据上消除了 `finish=length` 导致的提取失败。
+- **条目删除的对称清理** `db`:删条目时一并 ① 作废指向它的 queued 任务(`cancel_pending_jobs_for_items`,避免"条目不存在"失败)② 清 `chunks_fts`/`items_fts` 行;`auto_process` 遇到已删条目静默跳过。另新增启动期 `_purge_stale_fts`,清掉历史遗留的幽灵/重复 FTS 行。
+

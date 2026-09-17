@@ -147,6 +147,30 @@ class Database:
                 )
             except sqlite3.OperationalError:
                 self.fts_enabled = False
+            if self.fts_enabled:
+                self._purge_stale_fts(c)
+
+    def _purge_stale_fts(self, conn) -> int:
+        """清掉 FTS 里指向已删条目/语义块的幽灵行与重复行。
+
+        删除条目的历史路径不清理 FTS,遗留了指向已删 id 的行(会让关键词
+        检索白跑一趟并让索引持续膨胀)。启动时补齐,之后靠删除路径保持干净。
+        """
+        removed = 0
+        for table, key, source in (("items_fts", "item_id", "items"),
+                                   ("chunks_fts", "chunk_id", "chunks")):
+            removed += conn.execute(
+                f"DELETE FROM {table} WHERE {key} IS NULL"
+                f" OR {key} NOT IN (SELECT id FROM {source})").rowcount
+            removed += conn.execute(
+                f"DELETE FROM {table} WHERE rowid NOT IN"
+                f" (SELECT MIN(rowid) FROM {table} GROUP BY {key})").rowcount
+        if removed:
+            import logging as _log
+            _log.getLogger(__name__).info(
+                "迁移:清理 %d 行陈旧/重复的 FTS 索引", removed)
+        conn.commit()
+        return removed
 
     def _migrate(self, conn):
         """轻量列迁移:老库补新列。"""
@@ -589,16 +613,54 @@ class Database:
         return self._rows(self._conn().execute(sql, args))
 
     def delete_items_by_source_ref(self, source_ref: str) -> list[int]:
-        """按来源删除条目(chunks 级联),返回被删条目 id(用于清理向量)。"""
+        """按来源删除条目(chunks 级联),返回被删条目 id(用于清理向量)。
+
+        同步清掉 FTS 索引行与指向这些条目的待执行任务:前者避免留下幽灵
+        关键词命中,后者避免残留的 auto_process 执行时报"条目不存在"。
+        """
         conn = self._conn()
         rows = conn.execute("SELECT id FROM items WHERE source_ref=?",
                             (source_ref,)).fetchall()
         ids = [r["id"] for r in rows]
         if ids:
             marks = ",".join("?" * len(ids))
+            chunk_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM chunks WHERE item_id IN ({marks})", ids)]
             conn.execute(f"DELETE FROM items WHERE id IN ({marks})", ids)
+            self._delete_fts_rows(conn, chunk_ids, ids)
             conn.commit()
+            self.cancel_pending_jobs_for_items(ids)
         return ids
+
+    def _delete_fts_rows(self, conn, chunk_ids: list[int], item_ids: list[int]):
+        """删除路径的 FTS 对称清理(add_chunk/add_item 写入的那些行)。"""
+        if not self.fts_enabled:
+            return
+        for table, key, key_ids in (("chunks_fts", "chunk_id", chunk_ids),
+                                    ("items_fts", "item_id", item_ids)):
+            if key_ids:
+                marks = ",".join("?" * len(key_ids))
+                conn.execute(f"DELETE FROM {table} WHERE {key} IN ({marks})",
+                             key_ids)
+
+    # 以 item_id 为入参、条目消失后必然失败的任务类型
+    _ITEM_BOUND_JOBS = ("auto_process", "build_links")
+
+    def cancel_pending_jobs_for_items(self, item_ids) -> int:
+        """删除指向指定条目的待执行/执行中任务,返回删除条数。"""
+        ids = [int(i) for i in item_ids]
+        if not ids:
+            return 0
+        types = self._ITEM_BOUND_JOBS
+        conn = self._conn()
+        n = conn.execute(
+            "DELETE FROM jobs WHERE status IN ('pending', 'running')"
+            f" AND type IN ({','.join('?' * len(types))})"
+            f" AND json_extract(payload, '$.item_id') IN ({','.join('?' * len(ids))})",
+            (*types, *ids),
+        ).rowcount
+        conn.commit()
+        return n
 
     def set_item_status(self, item_id: int, status: str):
         conn = self._conn()

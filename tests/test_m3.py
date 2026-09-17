@@ -298,3 +298,109 @@ def test_proposal_strips_filler_words(memory, pstore, cfg):
     cats = [c for c in memory.db.categories("reading")
             if c["name"] == "心理学书籍"]
     assert len(cats) == 1  # 复用了已有分类,没有新建重复
+
+
+def test_proposal_fallback_on_belongs_to_phrase(memory, pstore, cfg):
+    """理由只说"属于X类"时也要解析:真实 #13 因此漏解析而没归入已有分类。"""
+    from memvault.classify import _proposal_hint
+
+    assert _proposal_hint(
+        "内容是对英剧《是,大臣》的剧情与政治讽刺进行解读,属于影视解读类。"
+    ) == ("影视解读", False)
+    # 显式措辞优先于"属于"("归入技术笔记" 胜过 "属于技术评测")
+    assert _proposal_hint("内容属于技术评测,归入技术笔记较合适")[0] == "技术笔记"
+    # 纯粹描述句里捞不出名字
+    assert _proposal_hint("内容为游戏解说") == (None, False)
+
+    cat_id = memory.db.add_category("general", "影视解读", status="proposed")
+    item_id = memory.add_item("general", "video", "《是,大臣》解读",
+                              content_text="政治讽刺剧评")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.98,
+                    "reason": "内容是对英剧《是,大臣》的剧情解读,属于影视解读类。"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed"
+    assert r["category_id"] == cat_id  # 命中已有待确认分类,而非留箱
+    item = memory.get_item(item_id)
+    assert item["category_id"] == cat_id
+    assert item["status"] == "inbox"  # 确认前不转 filed
+
+
+def test_explicit_proposal_ignores_confidence_gate(memory, pstore, cfg):
+    """理由明确"需新建X分类"时低置信度也提议:真实 #14(conf 0.3)被阈值丢弃。
+
+    提议是待用户确认的动作,显式点名时不必再看置信度;弱措辞仍守 0.5。
+    """
+    item_id = memory.add_item("general", "video", "12个冰淇淋指南",
+                              content_text="实为二手平台带货推广")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.3,
+                    "reason": "内容实为转转二手平板的促销推广,与树中分类均不匹配,"
+                              "需新建数码消费类分类。"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed"
+    assert memory.db.get_category(r["category_id"])["name"] == "数码消费"
+
+    # 弱措辞 + 低置信度:仍留箱,不造垃圾提议
+    item2 = memory.add_item("general", "video", "随拍", content_text="不明内容")
+    llm2 = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.3,
+                     "reason": "内容属于生活记录"}])
+    r2 = route_item(memory, llm2, pstore, item2, cfg)
+    assert r2["action"] == "inbox"
+    assert len([c for c in memory.db.categories("general")
+                if c["name"] == "生活记录"]) == 0
+
+
+def test_proposal_reuses_variant_name_category(memory, pstore, cfg):
+    """词尾变体视为同一桶:真实 #13 造出了「影视解读范畴」与「影视解读」并存。"""
+    from memvault.classify import _proposal_hint, same_category_name
+
+    assert _proposal_hint("属于影视解读范畴") == ("影视解读", False)
+    assert _proposal_hint("建议新增「技术笔记」类目")[0] == "技术笔记"
+    assert same_category_name("影视解读", "影视解读范畴")
+    assert same_category_name("影视解读范畴", "影视解读")
+    assert not same_category_name("影视解读", "影视旁白")   # 词尾不是泛化词
+    assert not same_category_name("读书", "读书笔记")
+
+    cat_id = memory.db.add_category("general", "影视解读", status="proposed")
+    item_id = memory.add_item("general", "video", "《是,大臣》解读",
+                              content_text="政治讽刺剧评")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.96,
+                    "reason": "对英剧的剧情与创作背景解读,属于影视解读范畴。"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed" and r["category_id"] == cat_id
+    assert len([c for c in memory.db.categories("general")
+                if "影视解读" in c["name"]]) == 1  # 没有造出重复分类
+
+
+def test_extraction_text_covers_long_content():
+    """长视频正文要覆盖全文,而不是只看前 3000 字(真实 #11 只覆盖 18%)。"""
+    from memvault.classify import _extraction_text
+
+    assert _extraction_text({"content_text": "短内容"}) == "短内容"
+
+    long_text = ("开头交代主题。" + "".join(f"第{i}段讲述细节。" for i in range(1500))
+                 + "最后给出结论总结。")
+    out = _extraction_text({"content_text": long_text}, budget=3000)
+    assert len(out) <= 3000                   # 总量受控(省略标记也计入预算)
+    assert out.startswith("开头交代主题。")     # 开头保留
+    assert "最后给出结论总结。" in out          # 结尾整段保留(结论所在)
+    assert "……(省略)……" in out                # 中段是抽样,不是截断
+
+    # 无 content_text 时退化为拼接语义块,同样受预算约束
+    item = {"title": "T", "chunks": [
+        {"modality": "text", "content": "块一" * 800},
+        {"modality": "image", "content": None},
+        {"modality": "text", "content": "块二结尾"}]}
+    out2 = _extraction_text(item, budget=500)
+    assert len(out2) <= 520 and "块二结尾" in out2
+
+
+def test_auto_process_skips_deleted_item(memory, cfg):
+    """同源重跑删掉的条目,其排队任务静默跳过而非失败(真实 job#134)。"""
+    class ExplodingLLM:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            raise AssertionError("条目不存在时不应调用 LLM")
+
+    result = auto_process({"item_id": 999}, memory, cfg, llm=ExplodingLLM())
+    assert result["action"] == "gone"
