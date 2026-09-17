@@ -3,6 +3,8 @@ embedding:
   text_model: BAAI/bge-small-zh-v1.5
   fake: false          # true = 确定性假嵌入,离线/测试用
 asr:
+  # 领域提示词:告诉识别器常见术语,降低同音误识别(如 ZCode→gcode)
+  # 修改后仅对之后新采集的视频生效
   model: small         # tiny / base / small / medium
   device: cpu
   compute_type: int8

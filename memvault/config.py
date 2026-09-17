@@ -13,7 +13,12 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 DEFAULTS = {
     "data_dir": None,
     "embedding": {"text_model": "BAAI/bge-small-zh-v1.5", "fake": False},
-    "asr": {"model": "small", "device": "cpu", "compute_type": "int8"},
+    "asr": {"model": "small", "device": "cpu", "compute_type": "int8",
+            "initial_prompt": (
+                "以下是一段中文科技/编程类视频的语音,可能包含英文术语与"
+                "产品名,例如:API、token、代理、coding plan、CC、ZCode、"
+                "Command Code、GitHub、Claude、GPT、CLI、SDK、Whisper、"
+                "以及各种 AI 模型名称。请按原词转写。")},
     "frames": {"max_frames": 16, "frame_interval": 5.0, "scene_threshold": 0.45},
     "bili": {"quality": 64, "cookies_path": None},
     "keep_video": False,
