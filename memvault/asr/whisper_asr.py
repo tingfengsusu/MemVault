@@ -1,6 +1,12 @@
-"""ASR:faster-whisper 封装(懒加载,带时间戳分段)。"""
+"""ASR:faster-whisper 封装(懒加载,带时间戳分段)。
+
+device='auto':检测到 CUDA 时用 GPU(float16,快 10 倍以上),
+否则/加载失败时回退 CPU(int8)。
+"""
 import logging
 import os
+import sys
+from pathlib import Path
 
 # faster-whisper 模型经 huggingface_hub 下载,国内镜像提前设置;
 # HF_HUB_DISABLE_XET:Xet 存储的 CAS 接口镜像无法代理(401),强制经典下载
@@ -10,21 +16,65 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 logger = logging.getLogger(__name__)
 
 
-def transcribe(video_path, model_size="small", device="cpu",
-               compute_type="int8", initial_prompt: str | None = None) -> list[dict]:
+def _ensure_cuda_dlls():
+    """Windows:把 pip 安装的 nvidia CUDA 库目录加入 DLL 搜索路径,
+    供 CTranslate2(GPU 推理)加载 cublas/cudnn。"""
+    if os.name != "nt":
+        return
+    for pkg in ("cublas", "cudnn"):
+        dll_dir = (Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+                   / pkg / "bin")
+        if dll_dir.exists():
+            try:
+                os.add_dll_directory(str(dll_dir))
+            except OSError:
+                pass
+
+
+def _resolve_device(device: str, compute_type: str) -> tuple[str, str]:
+    """device='auto' 时:有 CUDA 用 GPU(float16),否则 CPU(int8)。"""
+    if device != "auto":
+        return device, compute_type
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() > 0:
+            return "cuda", "float16"
+    except Exception:  # noqa: BLE001 — 探测失败按 CPU 处理
+        pass
+    return "cpu", ("int8" if compute_type == "auto" else compute_type)
+
+
+def transcribe(video_path, model_size="small", device="auto",
+               compute_type="int8", initial_prompt: str | None = None,
+               beam_size: int = 1, cpu_threads: int = 0) -> list[dict]:
     """转写音轨,返回 [{"start": 秒, "end": 秒, "text": 文本}]。
 
-    initial_prompt:领域提示词,把专有名词/术语提前告诉模型,
-    显著降低"ZCode→gcode"这类同音误识别。
+    device='auto':优先 GPU(CUDA 缺失时自动回退 CPU)。
+    beam_size:1=greedy(快);5=beam search(略准但慢约 2 倍)。
     """
     from faster_whisper import WhisperModel
 
-    logger.info("加载 faster-whisper 模型 %s(%s/%s)...",
-                model_size, device, compute_type)
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    device, compute_type = _resolve_device(device, compute_type)
+    if device == "cuda":
+        _ensure_cuda_dlls()
+    kwargs = {"device": device, "compute_type": compute_type}
+    if cpu_threads > 0 and device == "cpu":
+        kwargs["cpu_threads"] = cpu_threads
+    logger.info("加载 faster-whisper %s(%s/%s, beam=%d)...",
+                model_size, device, compute_type, beam_size)
+    try:
+        model = WhisperModel(model_size, **kwargs)
+    except Exception as e:  # noqa: BLE001 — GPU 加载失败回退 CPU
+        if device == "cuda":
+            logger.warning("CUDA 初始化失败(%s),回退 CPU", str(e)[:100])
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        else:
+            raise
     segments, info = model.transcribe(
         str(video_path), vad_filter=True, language=None,
-        initial_prompt=initial_prompt or None,
+        initial_prompt=initial_prompt or None, beam_size=beam_size,
+        condition_on_previous_text=False,
     )
     out = []
     for s in segments:

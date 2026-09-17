@@ -83,6 +83,43 @@ class Memory:
             self.db._conn().commit()
         return chunk_id
 
+    def add_text_chunks_batch(self, item_id: int, chunks: list[dict]) -> int:
+        """批量写入文本块:一次嵌入调用 + 一次向量库 upsert(比逐条快数倍)。
+
+        chunks: [{"content", "start_ts"?, "end_ts"?, "seq"?}, ...]
+        """
+        chunks = [c for c in chunks if (c.get("content") or "").strip()]
+        if not chunks:
+            return 0
+        item = self.db.get_items([item_id])[item_id]
+        base_meta = {
+            "item_id": item_id, "domain": item["domain"], "type": item["type"],
+            "category_id": item["category_id"],
+            "source_type": item["source_type"],
+        }
+        base_meta = {k: v for k, v in base_meta.items() if v is not None}
+
+        ids, metas, docs = [], [], []
+        for c in chunks:
+            cid = self.db.add_chunk(
+                item_id, "text", content=c["content"],
+                start_ts=c.get("start_ts"), end_ts=c.get("end_ts"),
+                seq=c.get("seq"))
+            meta = dict(base_meta)
+            if c.get("start_ts") is not None:
+                meta["start_ts"] = c["start_ts"]
+            ids.append(cid)
+            metas.append(meta)
+            docs.append(c["content"])
+
+        vecs = self.embedder.encode(docs)  # 单次批量编码
+        self.vs.upsert_text(ids, vecs, docs, metas)
+        self.db._conn().executemany(
+            "UPDATE chunks SET embed_status='done' WHERE id=?",
+            [(i,) for i in ids])
+        self.db._conn().commit()
+        return len(ids)
+
     # ── 检索 ──────────────────────────────────────────────────────────
     @staticmethod
     def _build_where(domain=None, type_=None, category_id=None):
