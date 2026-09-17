@@ -15,6 +15,10 @@ from memvault.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
+# 推理型模型的 JSON 重试预算上限:思考 token 与正文共用额度,
+# 实测 4000 仍可能被思考吃光(真实 #13 提取失败)
+_JSON_TOKEN_CEILING = 8000
+
 _VIDEO2SHOP_CONFIG = Path("D:/Code/Video2Shop/config/config.yaml")
 
 
@@ -93,20 +97,21 @@ class LLMClient:
 
     def chat_json(self, system: str, user: str, max_tokens: int = 2000) -> dict:
         """JSON 解析。推理型模型(如 deepseek-v4-flash)的思考 token 会占用
-        max_tokens 预算,可能返回空内容——此时自动加大预算重试一次。"""
+        max_tokens 预算,可能返回空内容——此时逐级加大预算重试。"""
         self._last_finish_reason = None
-        text = self.chat(system, user, max_tokens=max_tokens, json_mode=True)
-        if not (text or "").strip() or self._last_finish_reason == "length":
-            retry_budget = min(max(max_tokens * 3, 800), 4000)
+        budget = max_tokens
+        text = self.chat(system, user, max_tokens=budget, json_mode=True)
+        while self._needs_bigger_budget(text) and budget < _JSON_TOKEN_CEILING:
+            prev = budget
+            budget = min(max(budget * 2, 800), _JSON_TOKEN_CEILING)
             logger.warning(
-                "LLM 返回为空或截断(finish=%s, max_tokens=%d),以 %d 重试一次",
-                self._last_finish_reason, max_tokens, retry_budget)
-            text = self.chat(system, user, max_tokens=retry_budget,
-                             json_mode=True)
+                "LLM 返回为空或截断(finish=%s, max_tokens=%d),以 %d 重试",
+                self._last_finish_reason, prev, budget)
+            text = self.chat(system, user, max_tokens=budget, json_mode=True)
         if not (text or "").strip():
             raise RuntimeError(
-                f"LLM 返回空内容(finish={self._last_finish_reason});"
-                "可能是额度/限流问题或 max_tokens 过小,请稍后重试")
+                f"LLM 返回空内容(finish={self._last_finish_reason}, "
+                f"max_tokens={budget});可能是额度/限流问题,请稍后重试")
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -114,6 +119,10 @@ class LLMClient:
             if start >= 0 and end > start:
                 return json.loads(text[start:end + 1])
             raise
+
+    def _needs_bigger_budget(self, text: str) -> bool:
+        """内容为空,或(推理模型)思考吃光预算导致截断。"""
+        return not (text or "").strip() or self._last_finish_reason == "length"
 
 
 # ── 后端工厂:api(付费稳定) / web(免 token 网页自动化)────────────────

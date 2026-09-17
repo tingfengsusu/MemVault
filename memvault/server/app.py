@@ -273,9 +273,13 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
                     ).replace("\\", "/")
                 except ValueError:
                     c["media_url"] = None
+        raw = json.loads(item.get("attrs_json") or "{}") or {}
+        up_mid, up_name = raw.get("up_mid"), raw.get("up")
+        up_rule = memory.db.up_category(up_mid) if up_mid else None
         return templates.TemplateResponse(request, "item.html",
             ctx(request, item=item, category_name=cat["name"] if cat else None,
-                related=related))
+                related=related, all_categories=memory.db.categories(),
+                up_mid=up_mid, up_name=up_name, up_rule=up_rule))
 
     @app.get("/jobs")
     def jobs(request: Request):
@@ -310,8 +314,11 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         for c in memory.db.categories():
             c["item_count"] = memory.db.count_items(category_id=c["id"])
             groups[c["domain"]].append(c)
+        # 领域候选:已有分类的领域 + 条目实际用到的领域(输入框给下拉建议,仍可手填新领域)
+        domains = sorted(set(groups) | {d["domain"] for d in memory.db.items_by_domain()})
         return templates.TemplateResponse(request, "categories.html",
-            ctx(request, groups=dict(groups)))
+            ctx(request, groups=dict(groups), domains=domains,
+                up_rules=memory.db.up_rules()))
 
     @app.post("/categories/add")
     def categories_add(domain: str = Form(...), name: str = Form(...)):
@@ -325,6 +332,45 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     def categories_confirm(category_id: int):
         memory.db.confirm_category(category_id)
         return RedirectResponse("/categories", status_code=303)
+
+    @app.post("/categories/{category_id}/delete")
+    def categories_delete(category_id: int):
+        """删除分类:条目退回待整理箱,专属提示词/UP规则一并清理。"""
+        info = memory.db.delete_category(category_id)
+        if info is None:
+            raise HTTPException(404)
+        logger.info("删除分类 %s/%s:条目退回 %d 条,清理提示词 %d 条、UP规则 %d 条",
+                    info["domain"], info["name"], info["items"],
+                    info["prompts"], info["up_rules"])
+        return RedirectResponse("/categories", status_code=303)
+
+    @app.post("/items/{item_id}/bind-up")
+    def bind_up(item_id: int, category_id: str = Form(...), up_mid: str = Form(""),
+                up_name: str = Form("")):
+        """把这个 UP 的视频都归到该分类(可含本条:`filed` 直接归档)。"""
+        item = memory.get_item(item_id)
+        if not item:
+            raise HTTPException(404)
+        raw = json.loads(item.get("attrs_json") or "{}") or {}
+        mid = up_mid or str(raw.get("up_mid") or "")
+        if not mid:
+            raise HTTPException(422, "该条目没有 UP主 信息")
+        cat = memory.db.get_category(int(category_id))
+        if not cat:
+            raise HTTPException(422, "分类不存在")
+        name = up_name or raw.get("up")
+        memory.db.bind_up_category(mid, name, cat["id"])
+        memory.db.set_item_category(item_id, cat["id"], 1.0,
+                                    f"UP主规则:{name or mid} 的视频归入本分类")
+        memory.db.set_item_status(item_id, "filed")
+        logger.info("UP主规则已绑定:%s(%s) → 分类 %s", name, mid, cat["name"])
+        return RedirectResponse(f"/items/{item_id}", status_code=303)
+
+    @app.post("/up/{up_mid}/unbind")
+    def unbind_up(up_mid: str, back: str = Form("categories")):
+        memory.db.unbind_up_category(up_mid)
+        target = "/categories" if back == "categories" else "/"
+        return RedirectResponse(target, status_code=303)
 
     @app.post("/items/{item_id}/reanalyze")
     def reanalyze(item_id: int):

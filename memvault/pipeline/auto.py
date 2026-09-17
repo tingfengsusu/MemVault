@@ -17,6 +17,11 @@ def auto_process(payload: dict, memory, cfg: dict, llm=None,
     pstore = pstore or PromptStore(memory.db)
     item_id = payload["item_id"]
 
+    # 同源重跑会先删旧条目再建新条目,旧条目上排队的任务此时已无意义
+    if memory.get_item(item_id) is None:
+        logger.info("item=%s 已不存在(同源重跑清理),跳过自动处理", item_id)
+        return {"action": "gone"}
+
     if not llm.enabled:
         memory.db.set_item_category(item_id, None, None, "LLM 未配置,待手动归类")
         logger.info("item=%s LLM 未配置,跳过自动分类", item_id)
