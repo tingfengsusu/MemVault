@@ -13,6 +13,9 @@ vision:
   ocr:
     enabled: auto      # auto=人声太少(字幕/无配音)才跑 | on=一律跑(PPT/代码类) | off=不跑
     speech_ratio: 0.3  # auto 判据:人声时长/视频时长 低于此值就跑 OCR
+  image_embed:
+    enabled: auto      # 抽帧时给画面建 Chinese-CLIP 向量(文字搜画面/以图搜图);
+                       # auto=装了 cn-clip 且权重就绪才用,缺失自动跳过
 links:
   similarity_threshold: 0.62   # 真实库校准值(AI摘要画像 + top3块均值口径)
   max_per_item: 3

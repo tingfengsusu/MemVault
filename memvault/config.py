@@ -21,8 +21,9 @@ DEFAULTS = {
                 "Command Code、GitHub、Claude、GPT、CLI、SDK、Whisper、"
                 "以及各种 AI 模型名称。请按原词转写。")},
     "frames": {"max_frames": 40, "frame_interval": 5.0, "scene_threshold": 0.45},
-    # 视觉 OCR:auto=人声太少(字幕/无配音视频)才跑,on=一律跑,off=不跑
-    "vision": {"ocr": {"enabled": "auto", "speech_ratio": 0.3}},
+    # 视觉:OCR 与图像向量(都随依赖/权重是否就绪自动降级)
+    "vision": {"ocr": {"enabled": "auto", "speech_ratio": 0.3},
+               "image_embed": {"enabled": "auto"}},
     "bili": {"quality": 64, "cookies_path": None},
     "keep_video": False,
     "server": {"host": "127.0.0.1", "port": 8765},

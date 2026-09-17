@@ -190,8 +190,9 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     @app.get("/search")
     def search(request: Request, q: str = ""):
         results = memory.search(q, top_k=12) if q.strip() else []
+        images = memory.search_images(q, top_k=8) if q.strip() else []
         md = media_dir(cfg)
-        for r in results:
+        for r in results + images:
             c = r["chunk"]
             c["jump"] = bili_jump(r["item"]["source_ref"], c.get("start_ts"))
             if c.get("media_path"):
@@ -201,8 +202,12 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
                     ).replace("\\", "/")
                 except ValueError:
                     c["media_url"] = None
+        pending = memory.db._conn().execute(
+            "SELECT COUNT(*) FROM chunks WHERE modality='image'"
+            " AND embed_status='pending'").fetchone()[0]
         return templates.TemplateResponse(request, "search.html",
-            ctx(request, results=results, q=q))
+            ctx(request, results=results, images=images, q=q,
+                images_ready=(pending == 0)))
 
     @app.get("/inbox")
     def inbox(request: Request, domain: str = ""):
