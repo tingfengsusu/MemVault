@@ -405,3 +405,23 @@ SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources)
 - **推理模型 JSON 预算** `llm.chat_json`:2000→4000→8000 逐级升(此前只重试一次到 4000),真实数据上消除了 `finish=length` 导致的提取失败。
 - **条目删除的对称清理** `db`:删条目时一并 ① 作废指向它的 queued 任务(`cancel_pending_jobs_for_items`,避免"条目不存在"失败)② 清 `chunks_fts`/`items_fts` 行;`auto_process` 遇到已删条目静默跳过。另新增启动期 `_purge_stale_fts`,清掉历史遗留的幽灵/重复 FTS 行。
 
+### 13.10 抽帧覆盖 / OCR 启用 / UP主分类 / 双链重标定(2026-09-17 下午)
+
+- **抽帧改为全片覆盖** `vision/frames.py`:原实现(含 Video2Shop 原版)扫到 max_frames
+  即停,长视频只采到开头。现为「全片粗扫(≤600 点,记录相邻 HSV 直方图相关性)→ 时间轴分
+  max_frames 个桶 → 每桶取变化最大的点(静态画面取桶首)」;`frames.max_frames` 默认
+  16 → 40。真机:6 分 31 秒视频抽出 40 帧覆盖 0~381s。
+- **OCR 存档启用** `vision/ocr.py` + `pipeline/video.py`:新增 `vision.ocr.enabled`
+  (auto/on/off)。**auto** 的判据是"人声时长占比 < speech_ratio(0.3)"——字幕/无配音
+  视频才会跑 OCR,有解说的视频不做第二遍识别;管线顺序改为「抽帧 → ASR → 按需 OCR」。
+  OCR 参数调优 `canvas_size=960, mag_ratio=1.0`(1.17s/帧,默认参数 5.5s/帧)。
+  **画面文字并入 `content_text`**,AI 提取与检索才能看到字幕视频的真实内容。
+- **UP主 → 分类规则**:采集时写入 `attrs_json.up/up_mid/bvid`;新表
+  `up_categories`(up_mid → category_id);`route_item` 里 UP 规则**优先于 LLM**
+  (命中即归档,conf=1.0);面板:条目详情页一键绑定、分类页列出与解除。
+- **双链口径重标定** `links.py`:比较文本改为 **AI 摘要画像**(标题 + attrs_ai),
+  聚合改为 **候选 top-3 块相似度均值**(原为"任意单块最大值"),候选检索排除自身块
+  (长视频自身的块会占满 top-k),阈值按真实库分布定为 **0.62**(原 0.55)。
+  `set_links` 改为只替换"自己这一侧的声明",修掉"后算的条目抹掉先算链接"的缺陷;
+  读取时两方向取高分去重。真实库重建:4 对 → 8 对,伪链接消失。
+

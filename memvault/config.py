@@ -20,7 +20,9 @@ DEFAULTS = {
                 "产品名,例如:API、token、代理、coding plan、CC、ZCode、"
                 "Command Code、GitHub、Claude、GPT、CLI、SDK、Whisper、"
                 "以及各种 AI 模型名称。请按原词转写。")},
-    "frames": {"max_frames": 16, "frame_interval": 5.0, "scene_threshold": 0.45},
+    "frames": {"max_frames": 40, "frame_interval": 5.0, "scene_threshold": 0.45},
+    # 视觉 OCR:auto=人声太少(字幕/无配音视频)才跑,on=一律跑,off=不跑
+    "vision": {"ocr": {"enabled": "auto", "speech_ratio": 0.3}},
     "bili": {"quality": 64, "cookies_path": None},
     "keep_video": False,
     "server": {"host": "127.0.0.1", "port": 8765},
@@ -39,7 +41,10 @@ DEFAULTS = {
         },
     },
     "watch": {"interval_minutes": 30, "max_per_check": 10},
-    "links": {"similarity_threshold": 0.55, "max_per_item": 3},
+    # 双链阈值在真实库上校准(旧 0.55 + "最高单块"口径会把无关条目连起来):
+    # 新口径 = AI 摘要画像文本 + top-3 块相似度均值
+    "links": {"similarity_threshold": 0.62, "max_per_item": 3,
+              "candidate_chunks": 40},
 }
 
 

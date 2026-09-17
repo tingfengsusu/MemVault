@@ -418,3 +418,91 @@ def test_auto_process_skips_deleted_item(memory, cfg):
 
     result = auto_process({"item_id": 999}, memory, cfg, llm=ExplodingLLM())
     assert result["action"] == "gone"
+
+
+# ── UP主 → 分类 规则(q3:把一个 UP 绑到分类,他的视频自动归档)────────
+def test_up_rule_files_item_without_llm(memory, pstore, cfg):
+    """绑了 UP 规则就直接归档,不再调用 LLM(省一次分类调用)。"""
+    from memvault.classify import route_item
+
+    cat_id = memory.db.add_category("general", "冰淇淋教程")
+    memory.db.bind_up_category("12345", "胡仔一人食", cat_id)
+    item_id = memory.db.add_item(
+        "general", "video", "某视频", status="inbox",
+        attrs={"up": "胡仔一人食", "up_mid": "12345"})
+
+    class ExplodingLLM:
+        enabled = True
+
+        def chat_json(self, *a, **kw):
+            raise AssertionError("命中 UP 规则时不应调用 LLM")
+
+    r = route_item(memory, ExplodingLLM(), pstore, item_id, cfg)
+    assert r["action"] == "filed" and r["category_id"] == cat_id
+    assert r.get("by") == "up_rule"
+    item = memory.get_item(item_id)
+    assert item["status"] == "filed" and item["category_conf"] == 1.0
+    assert "UP主规则" in item["auto_note"]
+
+
+def test_up_rule_missing_or_unbound_falls_back(memory, pstore, cfg):
+    """没有 UP 信息 / 没绑规则 → 照常走 LLM 路由。"""
+    from memvault.classify import route_item
+
+    cat_id = memory.db.add_category("general", "技术")
+    # 有 up_mid 但没绑定
+    a = memory.db.add_item("general", "video", "技术视频",
+                           attrs={"up": "某UP", "up_mid": "999"})
+    llm = StubLLM([{"category_id": cat_id, "new_category": None,
+                    "confidence": 0.9, "reason": "技术类"}])
+    assert route_item(memory, llm, pstore, a, cfg)["action"] == "filed"
+
+    # 完全没有 UP 信息
+    b = memory.db.add_item("general", "video", "另一个视频")
+    llm2 = StubLLM([{"category_id": cat_id, "new_category": None,
+                     "confidence": 0.9, "reason": "技术类"}])
+    assert route_item(memory, llm2, pstore, b, cfg)["category_id"] == cat_id
+
+
+def test_up_rule_crud(memory):
+    """绑定/查询/解绑/列表。"""
+    cat = memory.db.add_category("general", "音乐教程")
+    memory.db.bind_up_category("888", "某唱见", cat)
+    rule = memory.db.up_category("888")
+    assert rule["category_id"] == cat and rule["up_name"] == "某唱见"
+
+    # 重复绑定视为更新(换分类)
+    cat2 = memory.db.add_category("general", "唱歌教学")
+    memory.db.bind_up_category("888", "某唱见", cat2)
+    assert memory.db.up_category("888")["category_id"] == cat2
+    assert len(memory.db.up_rules()) == 1
+
+    assert memory.db.up_category("000") is None      # 未绑定
+    assert memory.db.unbind_up_category("888") == 1
+    assert memory.db.up_rules() == []
+
+
+def test_panel_bind_up_and_list(api_client):
+    """面板:条目页绑定 UP → 分类页能看到规则,可解除。"""
+    client, app = api_client
+    cat = app.state.memory.db.add_category("general", "冰淇淋教程")
+    item = app.state.memory.add_item("general", "video", "冰淇淋视频",
+                                     attrs={"up": "胡仔一人食", "up_mid": "777"})
+
+    html = client.get(f"/items/{item}").text
+    assert "胡仔一人食" in html and "该 UP 的视频都归此分类" in html
+
+    r = client.post(f"/items/{item}/bind-up",
+                    data={"category_id": str(cat), "up_mid": "777",
+                          "up_name": "胡仔一人食"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert app.state.memory.db.up_category("777")["category_id"] == cat
+    assert app.state.memory.get_item(item)["category_id"] == cat
+
+    page = client.get("/categories").text
+    assert "UP主 → 分类 规则" in page and "胡仔一人食" in page
+
+    r2 = client.post("/up/777/unbind", data={"back": "categories"},
+                     follow_redirects=False)
+    assert r2.status_code == 303
+    assert app.state.memory.db.up_rules() == []

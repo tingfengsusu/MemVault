@@ -84,11 +84,43 @@ def _item_text(item: dict) -> str:
     return "\n".join(parts)
 
 
+def up_category_rule(memory, item: dict) -> tuple[int, str] | None:
+    """条目所属 UP 是否绑定了分类,返回 (category_id, up_name)。
+
+    绑定信息存在条目的原始属性 attrs_json 里(采集时写入 up/up_mid)。
+    """
+    import json
+
+    try:
+        attrs = json.loads(item.get("attrs_json") or "{}")
+    except (TypeError, ValueError):
+        attrs = {}
+    up_mid = attrs.get("up_mid")
+    if not up_mid:
+        return None
+    rule = memory.db.up_category(up_mid)
+    if not rule:
+        return None
+    return int(rule["category_id"]), (rule.get("up_name") or attrs.get("up")
+                                      or str(up_mid))
+
+
 def route_item(memory, llm, pstore, item_id: int, cfg: dict) -> dict:
     """路由:返回 {action: filed|proposed|inbox, category_id, confidence, reason}。"""
     item = memory.get_item(item_id)
     if not item:
         raise ValueError(f"条目不存在: {item_id}")
+
+    # UP主规则优先:用户给某个 UP 绑了分类,他的视频直接归档,不问 LLM
+    up_rule = up_category_rule(memory, item)
+    if up_rule:
+        cid, name = up_rule
+        note = f"UP主规则:{name} 的视频归入本分类"
+        memory.db.set_item_category(item_id, cid, 1.0, note)
+        memory.db.set_item_status(item_id, "filed")
+        logger.info("item=%s 命中 UP主规则「%s」→ 分类 %s", item_id, name, cid)
+        return {"action": "filed", "category_id": cid, "confidence": 1.0,
+                "reason": note, "by": "up_rule"}
 
     cats = memory.db.categories(item["domain"])
     valid_ids = {c["id"] for c in cats if c.get("status") == "active"}

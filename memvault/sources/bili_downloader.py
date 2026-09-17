@@ -372,6 +372,8 @@ class BiliDownloader:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.prefer_durl = prefer_durl
         self.checkpoint_dir = Path("./temp/checkpoints")
+        # 最近一次 download() 拿到的视频元信息(标题/UP主/BV 号),供管线上层使用
+        self.last_meta: dict = {}
 
     # ── 公开 API ─────────────────────────────────────────────────────────
 
@@ -396,6 +398,9 @@ class BiliDownloader:
         # 1. 获取视频信息
         info = self.api.get_video_info(bvid)
         title = info.get("title", bvid)
+        owner = info.get("owner") or {}
+        self.last_meta = {"bvid": bvid, "title": title,
+                          "up": owner.get("name"), "up_mid": owner.get("mid")}
         # 清理文件名中的非法字符
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", title)
         logger.info(f"视频标题: {safe_title}")

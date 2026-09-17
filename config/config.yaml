@@ -6,9 +6,16 @@ asr:
   device: auto         # auto=有GPU用GPU(快10倍+),否则CPU
   compute_type: int8
 frames:
-  max_frames: 16
+  max_frames: 40       # 覆盖整段视频(16 会只采到开头几分钟,长视频不够用)
   frame_interval: 5.0
   scene_threshold: 0.45
+vision:
+  ocr:
+    enabled: auto      # auto=人声太少(字幕/无配音)才跑 | on=一律跑(PPT/代码类) | off=不跑
+    speech_ratio: 0.3  # auto 判据:人声时长/视频时长 低于此值就跑 OCR
+links:
+  similarity_threshold: 0.62   # 真实库校准值(AI摘要画像 + top3块均值口径)
+  max_per_item: 3
 bili:
   quality: 64
   cookies_path: D:\Code\MemVault\config\cookies.txt

@@ -39,4 +39,24 @@
   <p class="muted">先建几个分类(如 fitness 下的"胸/背/腿"),LLM 自动分类才有"选择题"可做。</p>
 </div>
 {% endfor %}
+
+{% if up_rules %}
+<div class="card">
+  <h3>UP主 → 分类 规则<span class="muted" style="font-weight:400">
+    这些 UP 的新视频直接归档,不再走 LLM 分类</span></h3>
+  {% for r in up_rules %}
+  <div style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px dashed var(--card-border)">
+    <span style="min-width:180px">{{ r.up_name or ('mid ' ~ r.up_mid) }}</span>
+    <span class="tag gray">mid {{ r.up_mid }}</span>
+    <span class="tag">{{ r.category_domain }} / {{ r.category_name }}</span>
+    <form class="inline" method="post" action="/up/{{ r.up_mid }}/unbind">
+      <input type="hidden" name="back" value="categories">
+      <button class="ghost">解除</button>
+    </form>
+  </div>
+  {% endfor %}
+  <p class="muted" style="margin:8px 0 0">
+    绑定入口在视频条目的详情页(「📌 该 UP 的视频都归此分类」)。</p>
+</div>
+{% endif %}
 {% endblock %}

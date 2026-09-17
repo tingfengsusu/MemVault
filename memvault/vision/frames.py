@@ -1,82 +1,130 @@
-"""视觉:关键帧抽帧(HSV 场景检测,移植自 Video2Shop)+ 时间戳。"""
+"""视觉:关键帧抽帧(HSV 直方图场景检测,移植自 Video2Shop)+ 时间戳。
+
+与 Video2Shop 的关键差别:**抽帧必须覆盖整段视频**。原实现扫到 max_frames
+就停,长视频(如 44 分钟)只采到开头几分钟;现在改为
+「全片粗扫 → 时间轴分桶 → 每桶取画面变化最大的点」,
+静态画面(字幕/PPT 类)的桶里没有变化点就取桶首,保证时间轴均匀铺满。
+"""
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+PROBE_BUDGET = 600  # 全片粗扫采样点上限:够铺满长视频,又不会把解码拖太久
 
-def extract_frames(video_path, out_dir, max_frames=16, frame_interval=5.0,
-                   scene_threshold=0.45) -> list[dict]:
-    """抽帧,返回 [{"ts": 秒, "path": jpg 路径}]。
 
-    首选 HSV 直方图相关性场景检测(corr < threshold 视为切镜);
-    结果不足 2 帧时回退固定间隔抽帧并合并。
-    """
+def video_duration(video_path) -> float:
+    """视频时长(秒);读不出来返回 0。"""
     import cv2
 
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return total / fps if fps > 0 and total > 0 else 0.0
+
+
+def extract_frames(video_path, out_dir, max_frames=40, frame_interval=5.0,
+                   scene_threshold=0.45) -> list[dict]:
+    """抽帧,返回 [{"ts": 秒, "path": jpg 路径}],时间轴从头铺到尾。"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for f in out_dir.glob("frame_*.jpg"):
         f.unlink()
 
-    result = _by_scene_detection(
-        video_path, out_dir, max_frames, scene_threshold
-    )
-    if len(result) <= 1:
-        logger.info("场景检测镜头过少,回退固定间隔抽帧")
-        result = _by_interval(video_path, out_dir, max_frames, frame_interval)
-    logger.info("共抽取 %d 帧", len(result))
+    probes = _probe(video_path, PROBE_BUDGET)
+    if not probes:
+        logger.warning("场景探测失败,回退固定间隔抽帧")
+        return _by_interval(video_path, out_dir, max_frames, frame_interval)
+
+    result = _write_frames(video_path, out_dir,
+                           _pick_covering(probes, max_frames, scene_threshold))
+    if len(result) <= 1:  # 探测到但写盘失败/帧太少 → 兜底
+        logger.info("有效帧过少,回退固定间隔抽帧")
+        return _by_interval(video_path, out_dir, max_frames, frame_interval)
+    logger.info("共抽取 %d 帧(0.0s ~ %.0fs)", len(result), result[-1]["ts"])
     return result
 
 
-def _open(video_path):
+def _probe(video_path, budget: int) -> list[dict]:
+    """全片粗扫:均匀取点,算相邻点的 HSV 直方图相关性(corr 越低=画面变化越大)。
+
+    只记录 (ts, corr),不存图;选中的点再回头写盘。
+    """
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if fps <= 0 or total <= 0:
+        cap.release()
+        return []
+    step = max(1, total // max(1, budget))
+    probes, prev_hist = [], None
+    for idx in range(0, total, step):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hist = cv2.calcHist([hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        hist = cv2.normalize(hist, hist).flatten()
+        corr = 1.0 if prev_hist is None else float(
+            cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL))
+        probes.append({"ts": round(idx / fps, 2), "corr": corr})
+        prev_hist = hist
+    cap.release()
+    return probes
+
+
+def _pick_covering(probes: list[dict], max_frames: int,
+                   threshold: float) -> list[dict]:
+    """按时间把探测点分成 max_frames 个桶,每桶取画面变化最大的点。
+
+    桶内最大变化也高于阈值(即整桶画面几乎没变)时取桶首,保证均匀覆盖。
+    """
+    if max_frames <= 0:
+        return []
+    if len(probes) <= max_frames:
+        return probes
+    picked = []
+    n = len(probes)
+    for b in range(max_frames):
+        lo, hi = n * b // max_frames, max(1, n * (b + 1) // max_frames)
+        bucket = probes[lo:hi]
+        if not bucket:
+            continue
+        best = min(bucket, key=lambda p: p["corr"])
+        picked.append(best if best["corr"] < threshold else bucket[0])
+    return picked
+
+
+def _write_frames(video_path, out_dir, picks: list[dict]) -> list[dict]:
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 1
+    frames = []
+    for i, p in enumerate(picks):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(p["ts"] * fps))
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        path = out_dir / f"frame_{i:04d}.jpg"
+        cv2.imwrite(str(path), frame)
+        frames.append({"ts": p["ts"], "path": str(path)})
+    cap.release()
+    return frames
+
+
+def _by_interval(video_path, out_dir, max_frames, interval) -> list[dict]:
+    """兜底:固定间隔抽帧,长视频按 max_frames 均匀铺满整段。"""
     import cv2
 
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total / fps if fps > 0 else 0
-    return cap, fps, total, duration
-
-
-def _by_scene_detection(video_path, out_dir, max_frames, threshold):
-    import cv2
-
-    cap, fps, total, duration = _open(video_path)
-    if duration <= 0 or total == 0:
-        cap.release()
-        logger.warning("无法读取视频信息,回退固定间隔抽帧")
-        return _by_interval(video_path, out_dir, max_frames, 5.0)
-
-    scan = max(1, int(fps / 2))  # 每 0.5s 扫一帧
-    frames, prev_hist = [], None
-    idx = 0
-    while idx < total and len(frames) < max_frames:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ret, frame = cap.read()
-        if not ret:
-            idx += scan
-            continue
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
-        hist = cv2.normalize(hist, hist).flatten()
-        changed = prev_hist is None or cv2.compareHist(
-            prev_hist, hist, cv2.HISTCMP_CORREL
-        ) < threshold
-        if changed:
-            p = out_dir / f"frame_{len(frames):04d}.jpg"
-            cv2.imwrite(str(p), frame)
-            frames.append({"ts": round(idx / fps, 2), "path": str(p)})
-            prev_hist = hist
-        idx += scan
-    cap.release()
-    return frames
-
-
-def _by_interval(video_path, out_dir, max_frames, interval):
-    import cv2
-
-    cap, fps, total, duration = _open(video_path)
     if duration <= 0:
         cap.release()
         logger.error("无法读取视频时长")

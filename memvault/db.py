@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS links (
   UNIQUE(item_a, item_b)
 );
 CREATE INDEX IF NOT EXISTS idx_links_a ON links(item_a);
+
+-- UP主 → 分类 规则:同一个 UP 的视频直接归到指定分类(用户一键绑定)
+CREATE TABLE IF NOT EXISTS up_categories (
+  up_mid      TEXT PRIMARY KEY,
+  up_name     TEXT,
+  category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  created_at  TEXT DEFAULT (datetime('now', 'localtime'))
+);
 CREATE INDEX IF NOT EXISTS idx_links_b ON links(item_b);
 """
 
@@ -509,31 +517,39 @@ class Database:
 
     # ── 双链(相关条目)────────────────────────────────────────────────
     def set_links(self, item_id: int, related: list[tuple[int, float]]):
-        """整体替换某个条目的链接(幂等:重新计算不会累积)。"""
+        """整体替换"该条目自己算出"的链接(幂等)。
+
+        只删自己这一侧的声明(item_a=item_id):反向声明由对方那条记录负责。
+        否则后算的条目在"没找到对方"时会把先算的链接误删——真实数据里
+        #8 算出 #11(0.656)之后,#11 自己的计算没找到 #8,链接就被抹掉了。
+        """
         conn = self._conn()
-        conn.execute("DELETE FROM links WHERE item_a=? OR item_b=?", (item_id, item_id))
+        conn.execute("DELETE FROM links WHERE item_a=?", (item_id,))
         for rid, score in related:
-            a, b = (item_id, rid) if item_id < rid else (rid, item_id)
             conn.execute(
                 "INSERT OR REPLACE INTO links(item_a, item_b, score)"
-                " VALUES(?,?,?)", (a, b, round(float(score), 4)))
+                " VALUES(?,?,?)", (item_id, rid, round(float(score), 4)))
         conn.commit()
 
     def links_for_items(self, item_ids: list[int], limit_per: int = 3) -> dict[int, list[dict]]:
-        """批量取一组条目的相关条目 {item_id: [{id, title, score}...]}。"""
+        """批量取一组条目的相关条目 {item_id: [{id, title, score}...]}。
+
+        两个方向都有声明时取较高分,避免同一对重复出现。
+        """
         if not item_ids:
             return {}
         marks = ",".join("?" * len(item_ids))
         rows = self._rows(self._conn().execute(
             f"SELECT * FROM links WHERE item_a IN ({marks}) OR item_b IN ({marks})",
             item_ids + item_ids))
-        out: dict[int, list[dict]] = {}
+        best: dict[int, dict[int, float]] = {}
         need_titles = set()
         for r in rows:
             for me, other in ((r["item_a"], r["item_b"]), (r["item_b"], r["item_a"])):
                 if me in item_ids:
-                    out.setdefault(me, []).append(
-                        {"id": other, "score": r["score"]})
+                    cur = best.setdefault(me, {})
+                    if r["score"] > cur.get(other, 0.0):
+                        cur[other] = r["score"]
                     need_titles.add(other)
         titles = {}
         if need_titles:
@@ -542,12 +558,49 @@ class Database:
                     f"SELECT id, title FROM items WHERE id IN ({tmarks})",
                     list(need_titles)):
                 titles[r["id"]] = r["title"]
-        for lst in out.values():
-            for x in lst:
-                x["title"] = titles.get(x["id"], f"#{x['id']}")
+        out: dict[int, list[dict]] = {}
+        for me, pairs in best.items():
+            lst = [{"id": other, "score": score,
+                    "title": titles.get(other, f"#{other}")}
+                   for other, score in pairs.items()]
             lst.sort(key=lambda x: -x["score"])
-            del lst[limit_per:]
+            out[me] = lst[:limit_per]
         return out
+
+    # ── UP主 → 分类 规则 ───────────────────────────────────────────
+    def bind_up_category(self, up_mid, up_name, category_id):
+        """绑定"这个 UP 的视频归到该分类";重复绑定视为更新。"""
+        conn = self._conn()
+        conn.execute(
+            "INSERT INTO up_categories(up_mid, up_name, category_id)"
+            " VALUES(?,?,?) ON CONFLICT(up_mid) DO UPDATE SET"
+            " up_name=excluded.up_name, category_id=excluded.category_id",
+            (str(up_mid), up_name, int(category_id)),
+        )
+        conn.commit()
+
+    def unbind_up_category(self, up_mid) -> int:
+        conn = self._conn()
+        n = conn.execute("DELETE FROM up_categories WHERE up_mid=?",
+                         (str(up_mid),)).rowcount
+        conn.commit()
+        return n
+
+    def up_category(self, up_mid) -> dict | None:
+        """查这个 UP 的分类规则(没有则 None)。"""
+        if not up_mid:
+            return None
+        row = self._conn().execute(
+            "SELECT * FROM up_categories WHERE up_mid=?",
+            (str(up_mid),)).fetchone()
+        return dict(row) if row else None
+
+    def up_rules(self) -> list[dict]:
+        """全部 UP 规则(带分类名,面板展示用)。"""
+        return self._rows(self._conn().execute(
+            "SELECT r.*, c.name AS category_name, c.domain AS category_domain"
+            " FROM up_categories r LEFT JOIN categories c ON c.id = r.category_id"
+            " ORDER BY r.created_at DESC, r.up_mid"))
 
     def categories(self, domain=None) -> list[dict]:
         sql = "SELECT * FROM categories"
