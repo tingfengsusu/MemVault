@@ -99,6 +99,27 @@ input:focus, select:focus, textarea:focus {
 .jump { font-size: 12px; color: var(--accent); text-decoration: none; }
 .jump:hover { text-decoration: underline; }
 
+/* ── 卡片网格(库页)── */
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px; margin-bottom: 14px;
+}
+.tile { padding: 0; overflow: hidden; display: flex; flex-direction: column; margin-bottom: 0; }
+.thumb-top { width: 100%; height: 150px; object-fit: cover; display: block; }
+.tile-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.tile-body h3 { margin: 0; font-size: 14.5px; line-height: 1.45; }
+.meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+.dot-fitness { background: #ef4444; }
+.dot-shopping { background: #f59e0b; }
+.dot-cooking { background: #10b981; }
+.dot-programming { background: #3b82f6; }
+.dot-reading { background: #8b5cf6; }
+.dot-general { background: #9ca3af; }
+.rel { font-size: 12px; line-height: 1.9; margin-top: auto; }
+.rel a { color: var(--accent); text-decoration: none; }
+.rel a:hover { text-decoration: underline; }
+
 /* ── 杂项 ── */
 img.thumb { max-width: 200px; border-radius: 8px; border: 1px solid var(--card-border); display: block; margin-top: 8px; }
 .chips { display: flex; gap: 12px; margin-bottom: 12px; font-size: 13px; color: var(--muted); flex-wrap: wrap; align-items: center; }

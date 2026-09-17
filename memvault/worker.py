@@ -27,6 +27,7 @@ def recover_stale_jobs(db) -> int:
 
 def build_dispatch(memory, cfg: dict) -> dict:
     from memvault import automation as automation_mod
+    from memvault import links as links_mod
     from memvault.pipeline import auto as auto_mod
     from memvault.pipeline import files as files_mod
     from memvault.pipeline import text as text_mod
@@ -34,7 +35,7 @@ def build_dispatch(memory, cfg: dict) -> dict:
     from memvault import scheduler as scheduler_mod
 
     def with_auto(fn):
-        """采集成功 → 自动排队 LLM 分类提取(去重防重放)。"""
+        """采集成功 → 自动排队 LLM 分类提取 + 双链计算(各带去重)。"""
 
         def inner(p):
             item_id = fn(p)
@@ -42,6 +43,10 @@ def build_dispatch(memory, cfg: dict) -> dict:
                 memory.db.enqueue(
                     "auto_process", {"item_id": item_id},
                     dedup_key=f"auto|{item_id}",
+                )
+                memory.db.enqueue(
+                    "build_links", {"item_id": item_id},
+                    dedup_key=f"links|{item_id}",
                 )
             return item_id
 
@@ -56,6 +61,8 @@ def build_dispatch(memory, cfg: dict) -> dict:
         "ingest_product": with_auto(lambda p: text_mod.ingest_product(p, memory)),
         "ingest_file": with_auto(lambda p: files_mod.ingest_file(p, memory, cfg)),
         "auto_process": lambda p: auto_mod.auto_process(p, memory, cfg),
+        "build_links": lambda p: links_mod.build_links_for_item(
+            memory, p["item_id"], cfg),
         "watch_check": lambda p: scheduler_mod.check_source(
             memory, cfg, p["source_id"]),
         "jd_cart": lambda p: automation_mod.jd_cart_add(p),

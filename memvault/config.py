@@ -38,6 +38,7 @@ DEFAULTS = {
         },
     },
     "watch": {"interval_minutes": 30, "max_per_check": 10},
+    "links": {"similarity_threshold": 0.55, "max_per_item": 3},
 }
 
 
