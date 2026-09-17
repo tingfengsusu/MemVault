@@ -1,8 +1,23 @@
 """LLM 自动分类:路由(选桶)+ 提取(按分类提示词)。DESIGN §13.1 流程 A。"""
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# LLM 常把分类提议写进 reason 而漏掉结构化字段,这里做兜底解析
+_PROPOSAL_RE = re.compile(
+    r"(?:归入|归类为|建议(?:新增|新建|添加)|新建)\s*[「\"']?"
+    r"([^\s(（\[,。;:「」\"']{2,15})"
+)
+
+
+def _proposal_from_reason(reason: str) -> str | None:
+    m = _PROPOSAL_RE.search(reason or "")
+    if not m:
+        return None
+    name = m.group(1).rstrip("分类标签类目")
+    return name or None
 
 
 def _tree_text(categories: list[dict]) -> str:
@@ -62,7 +77,14 @@ def route_item(memory, llm, pstore, item_id: int, cfg: dict) -> dict:
                 "confidence": conf, "reason": reason}
 
     new_cat = (resp.get("new_category") or {}).get("name")
-    if new_cat and conf >= threshold:
+    if not new_cat:  # 兜底:从 reason 文本里抽取"归入XX"类提议
+        new_cat = _proposal_from_reason(reason)
+        if new_cat:
+            logger.info("item=%s 从 reason 兜底解析出分类提议: %s",
+                        item_id, new_cat)
+    # 提议新分类是"待用户确认"的动作,阈值可比直接归档低,命中率优先
+    propose_threshold = min(threshold, 0.5)
+    if new_cat and conf >= propose_threshold:
         cid = memory.db.add_category(item["domain"], str(new_cat)[:40],
                                      status="proposed")
         memory.db.set_item_category(item_id, cid, conf,

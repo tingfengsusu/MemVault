@@ -196,3 +196,34 @@ def test_panel_reanalyze_enqueues_job(api_client):
 
     html = client.get(f"/items/{item_id}").text
     assert "重新分析" in html
+
+
+def test_route_proposes_new_category_on_medium_confidence(memory, pstore, cfg):
+    """提议是待确认动作,0.5~0.8 的中等置信度也应提议(而非默默留箱)。"""
+    item_id = memory.add_item("general", "video", "技术评测",
+                              content_text="对比各种 AI 编程订阅套餐")
+    llm = StubLLM([{"category_id": None, "new_category": {"name": "技术笔记"},
+                    "confidence": 0.65, "reason": "属于技术评测"}])
+    result = route_item(memory, llm, pstore, item_id, cfg)
+    assert result["action"] == "proposed"
+    assert memory.db.get_category(result["category_id"])["status"] == "proposed"
+
+
+def test_proposal_fallback_from_reason(memory, pstore, cfg):
+    """LLM 把提议写进 reason 而漏掉结构化字段时的兜底解析。"""
+    from memvault.classify import _proposal_from_reason
+
+    assert _proposal_from_reason("内容属于技术评测,归入技术笔记(待确认)较合适。") \
+        == "技术笔记"
+    assert _proposal_from_reason("无合适分类,建议新增「穿搭灵感」分类") \
+        == "穿搭灵感"
+    assert _proposal_from_reason("内容为游戏解说") is None
+
+    item_id = memory.add_item("general", "video", "技术评测",
+                              content_text="AI 编程套餐对比")
+    llm = StubLLM([{"category_id": None, "new_category": None,
+                    "confidence": 0.6,
+                    "reason": "属于技术评测,归入技术笔记(待确认)较合适"}])
+    result = route_item(memory, llm, pstore, item_id, cfg)
+    assert result["action"] == "proposed"
+    assert memory.db.get_category(result["category_id"])["name"] == "技术笔记"
