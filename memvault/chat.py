@@ -48,7 +48,8 @@ def chat_turn(memory, llm, message: str, skill: str = "general") -> dict:
         raise ValueError("消息为空")
 
     skill_spec = get_skill(skill)
-    extraction = llm.chat_json(EXTRACT_SYSTEM, message)
+    # 抽取是小型 JSON 输出,限制 token 缩短响应尾延迟
+    extraction = llm.chat_json(EXTRACT_SYSTEM, message, max_tokens=600)
 
     saved_profile = []
     for p in extraction.get("profile") or []:
