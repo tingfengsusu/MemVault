@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS links (
   UNIQUE(item_a, item_b)
 );
 CREATE INDEX IF NOT EXISTS idx_links_a ON links(item_a);
+
+-- UP主 → 分类 规则:同一个 UP 的视频直接归到指定分类(用户一键绑定)
+CREATE TABLE IF NOT EXISTS up_categories (
+  up_mid      TEXT PRIMARY KEY,
+  up_name     TEXT,
+  category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  created_at  TEXT DEFAULT (datetime('now', 'localtime'))
+);
 CREATE INDEX IF NOT EXISTS idx_links_b ON links(item_b);
 """
 
@@ -147,6 +155,30 @@ class Database:
                 )
             except sqlite3.OperationalError:
                 self.fts_enabled = False
+            if self.fts_enabled:
+                self._purge_stale_fts(c)
+
+    def _purge_stale_fts(self, conn) -> int:
+        """清掉 FTS 里指向已删条目/语义块的幽灵行与重复行。
+
+        删除条目的历史路径不清理 FTS,遗留了指向已删 id 的行(会让关键词
+        检索白跑一趟并让索引持续膨胀)。启动时补齐,之后靠删除路径保持干净。
+        """
+        removed = 0
+        for table, key, source in (("items_fts", "item_id", "items"),
+                                   ("chunks_fts", "chunk_id", "chunks")):
+            removed += conn.execute(
+                f"DELETE FROM {table} WHERE {key} IS NULL"
+                f" OR {key} NOT IN (SELECT id FROM {source})").rowcount
+            removed += conn.execute(
+                f"DELETE FROM {table} WHERE rowid NOT IN"
+                f" (SELECT MIN(rowid) FROM {table} GROUP BY {key})").rowcount
+        if removed:
+            import logging as _log
+            _log.getLogger(__name__).info(
+                "迁移:清理 %d 行陈旧/重复的 FTS 索引", removed)
+        conn.commit()
+        return removed
 
     def _migrate(self, conn):
         """轻量列迁移:老库补新列。"""
@@ -425,6 +457,40 @@ class Database:
                      (category_id,))
         conn.commit()
 
+    def delete_category(self, category_id: int) -> dict | None:
+        """删除分类,并把它牵连的数据处理干净(返回各项计数;分类不存在返回 None)。
+
+        - 分类下的条目:退回待整理箱(filed → inbox,category_id 置空),
+          这样还能重新走一次自动分类,不会变成无归属的孤儿;
+        - 该分类的提示词版本与质疑记录:删除(分类没了,专属提示词失去意义);
+        - 绑到该分类的 UP主规则:删除(否则规则指向不存在的分类);
+        - 子分类(如果有):parent_id 置空,不做级联删除。
+        """
+        cat = self.get_category(category_id)
+        if not cat:
+            return None
+        conn = self._conn()
+        items = conn.execute(
+            "UPDATE items SET category_id=NULL,"
+            " status=CASE WHEN status='filed' THEN 'inbox' ELSE status END"
+            " WHERE category_id=?", (category_id,)).rowcount
+        prompts = conn.execute(
+            "SELECT COUNT(*) FROM prompts WHERE category_id=?",
+            (category_id,)).fetchone()[0]
+        conn.execute(
+            "DELETE FROM prompt_feedback WHERE prompt_id IN"
+            " (SELECT id FROM prompts WHERE category_id=?)", (category_id,))
+        conn.execute("DELETE FROM prompts WHERE category_id=?", (category_id,))
+        up_rules = conn.execute(
+            "DELETE FROM up_categories WHERE category_id=?",
+            (category_id,)).rowcount
+        conn.execute("UPDATE categories SET parent_id=NULL WHERE parent_id=?",
+                     (category_id,))
+        conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
+        conn.commit()
+        return {"name": cat["name"], "domain": cat["domain"], "items": items,
+                "prompts": prompts, "up_rules": up_rules}
+
     def get_category(self, category_id: int) -> dict | None:
         row = self._conn().execute(
             "SELECT * FROM categories WHERE id=?", (category_id,)
@@ -485,31 +551,39 @@ class Database:
 
     # ── 双链(相关条目)────────────────────────────────────────────────
     def set_links(self, item_id: int, related: list[tuple[int, float]]):
-        """整体替换某个条目的链接(幂等:重新计算不会累积)。"""
+        """整体替换"该条目自己算出"的链接(幂等)。
+
+        只删自己这一侧的声明(item_a=item_id):反向声明由对方那条记录负责。
+        否则后算的条目在"没找到对方"时会把先算的链接误删——真实数据里
+        #8 算出 #11(0.656)之后,#11 自己的计算没找到 #8,链接就被抹掉了。
+        """
         conn = self._conn()
-        conn.execute("DELETE FROM links WHERE item_a=? OR item_b=?", (item_id, item_id))
+        conn.execute("DELETE FROM links WHERE item_a=?", (item_id,))
         for rid, score in related:
-            a, b = (item_id, rid) if item_id < rid else (rid, item_id)
             conn.execute(
                 "INSERT OR REPLACE INTO links(item_a, item_b, score)"
-                " VALUES(?,?,?)", (a, b, round(float(score), 4)))
+                " VALUES(?,?,?)", (item_id, rid, round(float(score), 4)))
         conn.commit()
 
     def links_for_items(self, item_ids: list[int], limit_per: int = 3) -> dict[int, list[dict]]:
-        """批量取一组条目的相关条目 {item_id: [{id, title, score}...]}。"""
+        """批量取一组条目的相关条目 {item_id: [{id, title, score}...]}。
+
+        两个方向都有声明时取较高分,避免同一对重复出现。
+        """
         if not item_ids:
             return {}
         marks = ",".join("?" * len(item_ids))
         rows = self._rows(self._conn().execute(
             f"SELECT * FROM links WHERE item_a IN ({marks}) OR item_b IN ({marks})",
             item_ids + item_ids))
-        out: dict[int, list[dict]] = {}
+        best: dict[int, dict[int, float]] = {}
         need_titles = set()
         for r in rows:
             for me, other in ((r["item_a"], r["item_b"]), (r["item_b"], r["item_a"])):
                 if me in item_ids:
-                    out.setdefault(me, []).append(
-                        {"id": other, "score": r["score"]})
+                    cur = best.setdefault(me, {})
+                    if r["score"] > cur.get(other, 0.0):
+                        cur[other] = r["score"]
                     need_titles.add(other)
         titles = {}
         if need_titles:
@@ -518,12 +592,49 @@ class Database:
                     f"SELECT id, title FROM items WHERE id IN ({tmarks})",
                     list(need_titles)):
                 titles[r["id"]] = r["title"]
-        for lst in out.values():
-            for x in lst:
-                x["title"] = titles.get(x["id"], f"#{x['id']}")
+        out: dict[int, list[dict]] = {}
+        for me, pairs in best.items():
+            lst = [{"id": other, "score": score,
+                    "title": titles.get(other, f"#{other}")}
+                   for other, score in pairs.items()]
             lst.sort(key=lambda x: -x["score"])
-            del lst[limit_per:]
+            out[me] = lst[:limit_per]
         return out
+
+    # ── UP主 → 分类 规则 ───────────────────────────────────────────
+    def bind_up_category(self, up_mid, up_name, category_id):
+        """绑定"这个 UP 的视频归到该分类";重复绑定视为更新。"""
+        conn = self._conn()
+        conn.execute(
+            "INSERT INTO up_categories(up_mid, up_name, category_id)"
+            " VALUES(?,?,?) ON CONFLICT(up_mid) DO UPDATE SET"
+            " up_name=excluded.up_name, category_id=excluded.category_id",
+            (str(up_mid), up_name, int(category_id)),
+        )
+        conn.commit()
+
+    def unbind_up_category(self, up_mid) -> int:
+        conn = self._conn()
+        n = conn.execute("DELETE FROM up_categories WHERE up_mid=?",
+                         (str(up_mid),)).rowcount
+        conn.commit()
+        return n
+
+    def up_category(self, up_mid) -> dict | None:
+        """查这个 UP 的分类规则(没有则 None)。"""
+        if not up_mid:
+            return None
+        row = self._conn().execute(
+            "SELECT * FROM up_categories WHERE up_mid=?",
+            (str(up_mid),)).fetchone()
+        return dict(row) if row else None
+
+    def up_rules(self) -> list[dict]:
+        """全部 UP 规则(带分类名,面板展示用)。"""
+        return self._rows(self._conn().execute(
+            "SELECT r.*, c.name AS category_name, c.domain AS category_domain"
+            " FROM up_categories r LEFT JOIN categories c ON c.id = r.category_id"
+            " ORDER BY r.created_at DESC, r.up_mid"))
 
     def categories(self, domain=None) -> list[dict]:
         sql = "SELECT * FROM categories"
@@ -587,6 +698,56 @@ class Database:
             sql += " WHERE status=?"; args.append(status)
         sql += " GROUP BY domain ORDER BY c DESC"
         return self._rows(self._conn().execute(sql, args))
+
+    def delete_items_by_source_ref(self, source_ref: str) -> list[int]:
+        """按来源删除条目(chunks 级联),返回被删条目 id(用于清理向量)。
+
+        同步清掉 FTS 索引行与指向这些条目的待执行任务:前者避免留下幽灵
+        关键词命中,后者避免残留的 auto_process 执行时报"条目不存在"。
+        """
+        conn = self._conn()
+        rows = conn.execute("SELECT id FROM items WHERE source_ref=?",
+                            (source_ref,)).fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            marks = ",".join("?" * len(ids))
+            chunk_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM chunks WHERE item_id IN ({marks})", ids)]
+            conn.execute(f"DELETE FROM items WHERE id IN ({marks})", ids)
+            self._delete_fts_rows(conn, chunk_ids, ids)
+            conn.commit()
+            self.cancel_pending_jobs_for_items(ids)
+        return ids
+
+    def _delete_fts_rows(self, conn, chunk_ids: list[int], item_ids: list[int]):
+        """删除路径的 FTS 对称清理(add_chunk/add_item 写入的那些行)。"""
+        if not self.fts_enabled:
+            return
+        for table, key, key_ids in (("chunks_fts", "chunk_id", chunk_ids),
+                                    ("items_fts", "item_id", item_ids)):
+            if key_ids:
+                marks = ",".join("?" * len(key_ids))
+                conn.execute(f"DELETE FROM {table} WHERE {key} IN ({marks})",
+                             key_ids)
+
+    # 以 item_id 为入参、条目消失后必然失败的任务类型
+    _ITEM_BOUND_JOBS = ("auto_process", "build_links")
+
+    def cancel_pending_jobs_for_items(self, item_ids) -> int:
+        """删除指向指定条目的待执行/执行中任务,返回删除条数。"""
+        ids = [int(i) for i in item_ids]
+        if not ids:
+            return 0
+        types = self._ITEM_BOUND_JOBS
+        conn = self._conn()
+        n = conn.execute(
+            "DELETE FROM jobs WHERE status IN ('pending', 'running')"
+            f" AND type IN ({','.join('?' * len(types))})"
+            f" AND json_extract(payload, '$.item_id') IN ({','.join('?' * len(ids))})",
+            (*types, *ids),
+        ).rowcount
+        conn.commit()
+        return n
 
     def set_item_status(self, item_id: int, status: str):
         conn = self._conn()

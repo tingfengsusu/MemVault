@@ -43,6 +43,34 @@
     </table>
   {% endif %}
   {% if item.auto_note %}<p class="muted" style="margin-top:8px">自动分析:{{ item.auto_note }}</p>{% endif %}
+  {% if up_mid %}
+  <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--card-border)">
+    <p class="muted" style="margin:0 0 4px">
+      UP主:{{ up_name or ('mid ' ~ up_mid) }}
+      {% if up_rule %}· 已绑定规则 → 分类 #{{ up_rule.category_id }}{% endif %}
+    </p>
+    <form class="inline" method="post" action="/items/{{ item.id }}/bind-up"
+          style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input type="hidden" name="up_mid" value="{{ up_mid }}">
+      <input type="hidden" name="up_name" value="{{ up_name or '' }}">
+      <select name="category_id" required
+              style="padding:5px 8px;border:1px solid var(--input-border);border-radius:6px">
+        {% for c in all_categories %}
+        <option value="{{ c.id }}" {{ 'selected' if up_rule and up_rule.category_id == c.id else '' }}>
+          {{ c.domain }} / {{ c.name }}{{ '(待确认)' if c.status == 'proposed' else '' }}
+        </option>
+        {% endfor %}
+      </select>
+      <button class="ghost">📌 该 UP 的视频都归此分类</button>
+    </form>
+    {% if up_rule %}
+    <form class="inline" method="post" action="/up/{{ up_mid }}/unbind" style="margin-top:4px">
+      <input type="hidden" name="back" value="item">
+      <button class="ghost">解除该 UP 的分类规则</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
   <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
     <form class="inline" method="post" action="/items/{{ item.id }}/reanalyze">
       <button class="ghost">🔄 重新分析</button>

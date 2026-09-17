@@ -111,3 +111,35 @@ def test_long_text_chunking(memory, cfg, tmp_path):
     chunks = _chunk_text(text)
     assert len(chunks) >= 5  # 长文被切成多块
     assert all(len(c) <= 1400 for c in chunks)
+
+
+def test_parse_epub(memory, cfg, doc_paths):
+    import zipfile
+
+    doc_paths.mkdir(exist_ok=True)
+    p = doc_paths / "小书.epub"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("mimetype", "application/epub+zip")
+        z.writestr("META-INF/container.xml",
+            '<?xml version="1.0"?><container version="1.0" '
+            'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+            '<rootfiles><rootfile full-path="content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles></container>')
+        z.writestr("content.opf",
+            '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" '
+            'version="3.0"><metadata '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            '<dc:title>习惯的力量</dc:title></metadata>'
+            '<manifest><item id="c1" href="ch1.xhtml" '
+            'media-type="application/xhtml+xml"/></manifest>'
+            '<spine><itemref idref="c1"/></spine></package>')
+        z.writestr("ch1.xhtml",
+            "<html><body><h1>第一章</h1>"
+            "<p>习惯由提示、惯常行为和奖赏三部分组成。</p></body></html>")
+
+    from memvault.pipeline.document import parse_document
+
+    item_id = parse_document(p, memory, cfg, domain="reading")
+    all_text = "\n".join(c["content"] for c in memory.get_item(item_id)["chunks"])
+    assert "[书名]习惯的力量" in all_text
+    assert "惯常行为" in all_text

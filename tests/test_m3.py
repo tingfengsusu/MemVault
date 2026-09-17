@@ -183,6 +183,20 @@ def test_panel_categories_flow(api_client):
     assert app.state.memory.db.get_category(cat_id)["status"] == "active"
 
 
+def test_panel_category_domain_suggestions(api_client):
+    """领域输入框要带已有领域下拉建议(不用每次手打全名)。"""
+    client, app = api_client
+    app.state.memory.add_item("general", "video", "某某视频")
+    app.state.memory.add_item("reading", "doc", "某本书")
+    app.state.memory.db.add_category("fitness", "胸部")
+
+    html = client.get("/categories").text
+    assert '<datalist id="domain-options">' in html
+    for d in ("general", "reading", "fitness"):   # 条目领域 + 已建分类领域
+        assert f'<option value="{d}">' in html
+    assert 'list="domain-options"' in html        # 输入框仍可手填新领域
+
+
 def test_panel_reanalyze_enqueues_job(api_client):
     client, app = api_client
     item_id = app.state.memory.add_item("general", "page", "待分析",
@@ -278,3 +292,265 @@ def test_proposal_reuses_existing_same_name_category(memory, pstore, cfg):
     assert r2["action"] == "proposed" and r2["category_id"] == cat_id
     assert len([c for c in memory.db.categories("general")
                 if c["name"] == "技术笔记"]) == 1
+
+
+def test_proposal_strips_filler_words(memory, pstore, cfg):
+    """理由文本里的语气词要剥离,避免'心理学书籍最合适'式重复分类。"""
+    from memvault.classify import _proposal_from_reason
+
+    assert _proposal_from_reason("归入心理学书籍最合适") == "心理学书籍"
+    assert _proposal_from_reason("归类为技术笔记比较合适") == "技术笔记"
+    assert _proposal_from_reason("建议新增「穿搭灵感」为宜") == "穿搭灵感"
+
+    memory.db.add_category("reading", "心理学书籍")  # 已有 active
+    item_id = memory.add_item("reading", "doc", "《影响力》",
+                              content_text="心理学经典")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.6,
+                    "reason": "属于心理学拆解,归入心理学书籍最合适"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed"
+    cats = [c for c in memory.db.categories("reading")
+            if c["name"] == "心理学书籍"]
+    assert len(cats) == 1  # 复用了已有分类,没有新建重复
+
+
+def test_proposal_fallback_on_belongs_to_phrase(memory, pstore, cfg):
+    """理由只说"属于X类"时也要解析:真实 #13 因此漏解析而没归入已有分类。"""
+    from memvault.classify import _proposal_hint
+
+    assert _proposal_hint(
+        "内容是对英剧《是,大臣》的剧情与政治讽刺进行解读,属于影视解读类。"
+    ) == ("影视解读", False)
+    # 显式措辞优先于"属于"("归入技术笔记" 胜过 "属于技术评测")
+    assert _proposal_hint("内容属于技术评测,归入技术笔记较合适")[0] == "技术笔记"
+    # 纯粹描述句里捞不出名字
+    assert _proposal_hint("内容为游戏解说") == (None, False)
+
+    cat_id = memory.db.add_category("general", "影视解读", status="proposed")
+    item_id = memory.add_item("general", "video", "《是,大臣》解读",
+                              content_text="政治讽刺剧评")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.98,
+                    "reason": "内容是对英剧《是,大臣》的剧情解读,属于影视解读类。"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed"
+    assert r["category_id"] == cat_id  # 命中已有待确认分类,而非留箱
+    item = memory.get_item(item_id)
+    assert item["category_id"] == cat_id
+    assert item["status"] == "inbox"  # 确认前不转 filed
+
+
+def test_explicit_proposal_ignores_confidence_gate(memory, pstore, cfg):
+    """理由明确"需新建X分类"时低置信度也提议:真实 #14(conf 0.3)被阈值丢弃。
+
+    提议是待用户确认的动作,显式点名时不必再看置信度;弱措辞仍守 0.5。
+    """
+    item_id = memory.add_item("general", "video", "12个冰淇淋指南",
+                              content_text="实为二手平台带货推广")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.3,
+                    "reason": "内容实为转转二手平板的促销推广,与树中分类均不匹配,"
+                              "需新建数码消费类分类。"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed"
+    assert memory.db.get_category(r["category_id"])["name"] == "数码消费"
+
+    # 弱措辞 + 低置信度:仍留箱,不造垃圾提议
+    item2 = memory.add_item("general", "video", "随拍", content_text="不明内容")
+    llm2 = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.3,
+                     "reason": "内容属于生活记录"}])
+    r2 = route_item(memory, llm2, pstore, item2, cfg)
+    assert r2["action"] == "inbox"
+    assert len([c for c in memory.db.categories("general")
+                if c["name"] == "生活记录"]) == 0
+
+
+def test_proposal_reuses_variant_name_category(memory, pstore, cfg):
+    """词尾变体视为同一桶:真实 #13 造出了「影视解读范畴」与「影视解读」并存。"""
+    from memvault.classify import _proposal_hint, same_category_name
+
+    assert _proposal_hint("属于影视解读范畴") == ("影视解读", False)
+    assert _proposal_hint("建议新增「技术笔记」类目")[0] == "技术笔记"
+    assert same_category_name("影视解读", "影视解读范畴")
+    assert same_category_name("影视解读范畴", "影视解读")
+    assert not same_category_name("影视解读", "影视旁白")   # 词尾不是泛化词
+    assert not same_category_name("读书", "读书笔记")
+
+    cat_id = memory.db.add_category("general", "影视解读", status="proposed")
+    item_id = memory.add_item("general", "video", "《是,大臣》解读",
+                              content_text="政治讽刺剧评")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.96,
+                    "reason": "对英剧的剧情与创作背景解读,属于影视解读范畴。"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed" and r["category_id"] == cat_id
+    assert len([c for c in memory.db.categories("general")
+                if "影视解读" in c["name"]]) == 1  # 没有造出重复分类
+
+
+def test_extraction_text_covers_long_content():
+    """长视频正文要覆盖全文,而不是只看前 3000 字(真实 #11 只覆盖 18%)。"""
+    from memvault.classify import _extraction_text
+
+    assert _extraction_text({"content_text": "短内容"}) == "短内容"
+
+    long_text = ("开头交代主题。" + "".join(f"第{i}段讲述细节。" for i in range(1500))
+                 + "最后给出结论总结。")
+    out = _extraction_text({"content_text": long_text}, budget=3000)
+    assert len(out) <= 3000                   # 总量受控(省略标记也计入预算)
+    assert out.startswith("开头交代主题。")     # 开头保留
+    assert "最后给出结论总结。" in out          # 结尾整段保留(结论所在)
+    assert "……(省略)……" in out                # 中段是抽样,不是截断
+
+    # 无 content_text 时退化为拼接语义块,同样受预算约束
+    item = {"title": "T", "chunks": [
+        {"modality": "text", "content": "块一" * 800},
+        {"modality": "image", "content": None},
+        {"modality": "text", "content": "块二结尾"}]}
+    out2 = _extraction_text(item, budget=500)
+    assert len(out2) <= 520 and "块二结尾" in out2
+
+
+def test_auto_process_skips_deleted_item(memory, cfg):
+    """同源重跑删掉的条目,其排队任务静默跳过而非失败(真实 job#134)。"""
+    class ExplodingLLM:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            raise AssertionError("条目不存在时不应调用 LLM")
+
+    result = auto_process({"item_id": 999}, memory, cfg, llm=ExplodingLLM())
+    assert result["action"] == "gone"
+
+
+# ── UP主 → 分类 规则(q3:把一个 UP 绑到分类,他的视频自动归档)────────
+def test_up_rule_files_item_without_llm(memory, pstore, cfg):
+    """绑了 UP 规则就直接归档,不再调用 LLM(省一次分类调用)。"""
+    from memvault.classify import route_item
+
+    cat_id = memory.db.add_category("general", "冰淇淋教程")
+    memory.db.bind_up_category("12345", "胡仔一人食", cat_id)
+    item_id = memory.db.add_item(
+        "general", "video", "某视频", status="inbox",
+        attrs={"up": "胡仔一人食", "up_mid": "12345"})
+
+    class ExplodingLLM:
+        enabled = True
+
+        def chat_json(self, *a, **kw):
+            raise AssertionError("命中 UP 规则时不应调用 LLM")
+
+    r = route_item(memory, ExplodingLLM(), pstore, item_id, cfg)
+    assert r["action"] == "filed" and r["category_id"] == cat_id
+    assert r.get("by") == "up_rule"
+    item = memory.get_item(item_id)
+    assert item["status"] == "filed" and item["category_conf"] == 1.0
+    assert "UP主规则" in item["auto_note"]
+
+
+def test_up_rule_missing_or_unbound_falls_back(memory, pstore, cfg):
+    """没有 UP 信息 / 没绑规则 → 照常走 LLM 路由。"""
+    from memvault.classify import route_item
+
+    cat_id = memory.db.add_category("general", "技术")
+    # 有 up_mid 但没绑定
+    a = memory.db.add_item("general", "video", "技术视频",
+                           attrs={"up": "某UP", "up_mid": "999"})
+    llm = StubLLM([{"category_id": cat_id, "new_category": None,
+                    "confidence": 0.9, "reason": "技术类"}])
+    assert route_item(memory, llm, pstore, a, cfg)["action"] == "filed"
+
+    # 完全没有 UP 信息
+    b = memory.db.add_item("general", "video", "另一个视频")
+    llm2 = StubLLM([{"category_id": cat_id, "new_category": None,
+                     "confidence": 0.9, "reason": "技术类"}])
+    assert route_item(memory, llm2, pstore, b, cfg)["category_id"] == cat_id
+
+
+def test_up_rule_crud(memory):
+    """绑定/查询/解绑/列表。"""
+    cat = memory.db.add_category("general", "音乐教程")
+    memory.db.bind_up_category("888", "某唱见", cat)
+    rule = memory.db.up_category("888")
+    assert rule["category_id"] == cat and rule["up_name"] == "某唱见"
+
+    # 重复绑定视为更新(换分类)
+    cat2 = memory.db.add_category("general", "唱歌教学")
+    memory.db.bind_up_category("888", "某唱见", cat2)
+    assert memory.db.up_category("888")["category_id"] == cat2
+    assert len(memory.db.up_rules()) == 1
+
+    assert memory.db.up_category("000") is None      # 未绑定
+    assert memory.db.unbind_up_category("888") == 1
+    assert memory.db.up_rules() == []
+
+
+def test_panel_bind_up_and_list(api_client):
+    """面板:条目页绑定 UP → 分类页能看到规则,可解除。"""
+    client, app = api_client
+    cat = app.state.memory.db.add_category("general", "冰淇淋教程")
+    item = app.state.memory.add_item("general", "video", "冰淇淋视频",
+                                     attrs={"up": "胡仔一人食", "up_mid": "777"})
+
+    html = client.get(f"/items/{item}").text
+    assert "胡仔一人食" in html and "该 UP 的视频都归此分类" in html
+
+    r = client.post(f"/items/{item}/bind-up",
+                    data={"category_id": str(cat), "up_mid": "777",
+                          "up_name": "胡仔一人食"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert app.state.memory.db.up_category("777")["category_id"] == cat
+    assert app.state.memory.get_item(item)["category_id"] == cat
+
+    page = client.get("/categories").text
+    assert "UP主 → 分类 规则" in page and "胡仔一人食" in page
+
+    r2 = client.post("/up/777/unbind", data={"back": "categories"},
+                     follow_redirects=False)
+    assert r2.status_code == 303
+    assert app.state.memory.db.up_rules() == []
+
+
+def test_delete_category_returns_items_to_inbox(memory):
+    """删除分类:条目退回待整理箱,专属提示词/质疑与 UP 规则一并清理。"""
+    cat = memory.db.add_category("general", "临时分类")
+    keep = memory.db.add_category("general", "保留分类")
+    pstore = PromptStore(memory.db)
+    pstore.ensure_seed()
+    pstore.new_version("extract", "extract", "该分类专属提示词", category_id=cat)
+
+    item_filed = memory.db.add_item("general", "video", "归好的", status="filed",
+                                    category_id=cat)
+    item_inbox = memory.db.add_item("general", "video", "还在箱里",
+                                    category_id=cat, status="inbox")
+    other = memory.db.add_item("general", "video", "别人的", status="filed",
+                               category_id=keep)
+    memory.db.bind_up_category("555", "某UP", cat)
+
+    info = memory.db.delete_category(cat)
+    assert info["name"] == "临时分类" and info["items"] == 2
+    assert info["prompts"] == 1 and info["up_rules"] == 1
+
+    assert memory.db.get_category(cat) is None
+    a = memory.get_item(item_filed)
+    assert a["category_id"] is None and a["status"] == "inbox"   # filed → inbox
+    b = memory.get_item(item_inbox)
+    assert b["category_id"] is None and b["status"] == "inbox"
+    assert memory.get_item(other)["category_id"] == keep          # 别的分类不动
+    assert memory.db.up_category("555") is None
+    n = memory.db._conn().execute(
+        "SELECT COUNT(*) FROM prompts WHERE category_id=?", (cat,)).fetchone()[0]
+    assert n == 0
+
+
+def test_delete_category_missing_and_panel(api_client):
+    """删除不存在的分类 → 404;面板删除后列表里消失。"""
+    client, app = api_client
+    assert app.state.memory.db.delete_category(9999) is None
+    assert client.post("/categories/9999/delete",
+                       follow_redirects=False).status_code == 404
+
+    cat = app.state.memory.db.add_category("general", "要删掉的")
+    page = client.get("/categories").text
+    assert "要删掉的" in page and "🗑 删除" in page
+
+    r = client.post(f"/categories/{cat}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert "要删掉的" not in client.get("/categories").text

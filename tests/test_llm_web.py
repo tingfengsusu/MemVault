@@ -36,7 +36,7 @@ def test_web_client_lazy_no_browser_on_init():
 
 
 def test_chat_json_retries_on_empty_content(monkeypatch):
-    """推理型模型思考吃光 token 返回空内容 → 自动加大预算重试一次。"""
+    """推理型模型思考吃光 token 返回空内容 → 自动加大预算重试。"""
     from memvault.llm import LLMClient
 
     client = LLMClient({"llm": {"api_key": "sk-test"}})
@@ -54,6 +54,26 @@ def test_chat_json_retries_on_empty_content(monkeypatch):
     result = client.chat_json("s", "u", max_tokens=50)
     assert result == {"ok": True}
     assert calls == [50, 800]  # 重试预算 = max(50*3, 800)
+
+
+def test_chat_json_escalates_budget_across_multiple_retries(monkeypatch):
+    """4000 仍被思考吃光时继续升到 8000(真实 #13 提取连续两次空内容)。"""
+    from memvault.llm import LLMClient
+
+    client = LLMClient({"llm": {"api_key": "sk-test"}})
+    calls = []
+
+    def fake_chat(system, user, max_tokens=2000, json_mode=False):
+        calls.append(max_tokens)
+        if len(calls) <= 2:  # 前两次思考吃光预算
+            client._last_finish_reason = "length"
+            return ""
+        client._last_finish_reason = "stop"
+        return '{"ok": true}'
+
+    monkeypatch.setattr(client, "chat", fake_chat)
+    assert client.chat_json("s", "u") == {"ok": True}
+    assert calls == [2000, 4000, 8000]
 
 
 def test_chat_json_clear_error_when_still_empty(monkeypatch):
