@@ -425,3 +425,25 @@ SQLite 九张表已建(§2.1 六张 + prompts + prompt_feedback + watch_sources)
   `set_links` 改为只替换"自己这一侧的声明",修掉"后算的条目抹掉先算链接"的缺陷;
   读取时两方向取高分去重。真实库重建:4 对 → 8 对,伪链接消失。
 
+### 13.11 图像检索启用(Chinese-CLIP,2026-09-17 傍晚)
+
+DESIGN §2.2 预留的 `chunk_image` 一直"只写不读"(抽帧入库但没建向量,也没消费方)。
+本轮补齐三段:**索引 → 检索 → 展示**。
+
+- **依赖与权重**:`pip install cn-clip --no-deps`(lmdb 只用于训练数据管线,需本地
+  编译,推理用不到);权重 `clip_cn_vit-b-16.pt`(~700MB)经
+  `HF_ENDPOINT=https://hf-mirror.com` 下载到 `~/.cache/clip`。torch 版本不受影响。
+- **`ImageEmbedder`**:默认模型 `ViT-B-16`(cn_clip 1.6 只认原始命名;HF 名是 2.x
+  特性);新增 `encode_text`(文字搜画面)与 `encode_image_batch`(批量建索引);
+  `available()` 要求"已装 + 权重在本地",因为托盘以 `HF_HUB_OFFLINE=1` 启动,
+  运行期不能偷偷联网。
+- **检索** `memory.search_images` + `VectorStore.query_image`:文字 → CLIP 文本编码 →
+  图像集合近邻;返回 {score, chunk(含 media_path/start_ts), item};嵌入器缺失时安静
+  返回空,**不影响文本检索**。
+- **索引** `pipeline/video.py` 抽帧入库即建向量(`vision.image_embed.enabled: auto/off`);
+  存量帧用 `scripts/embed_images.py` 回填(批量 8 张,CPU 上约 0.3~1s/张)。
+- **展示** 检索页「🖼 相关画面」区块:缩略图 + 条目 + 时间戳 + 相似度;库内还有
+  未索引帧时提示跑回填脚本。
+- 用途:视频"按画面找片段"(纯画面/图表/手势等 OCR 采不到的信息)、商品主图以图找同款
+  (§7.2)、PDF 图表检索(§4.3)。
+

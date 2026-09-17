@@ -325,3 +325,37 @@ SQLite integrity_check / 条目与日志规模 / 向量数==文本块数 / 嵌�
 新增 9 例:长文覆盖/词尾变体复用/显式提议阈值/抽帧覆盖/兜底间隔/OCR 三态/UP 规则
 (不调 LLM、未绑定回落、CRUD、面板绑定与列出)/双链 top-3 均值与画像文本/链接不被误删。
 **105 passed**。
+
+---
+
+## 2026-09-17 傍晚:图像检索启用(Chinese-CLIP)
+
+### 背景
+
+用户问"以图搜图到底用在哪" → 结论是当时没有任何功能消费图像向量(只写不读),
+我建议先不装。用户随后拍板:**装,走代理下载**。
+
+### 安装与下载(本机实测)
+
+| 步骤 | 结果 |
+|---|---|
+| 代理探测 | 无系统代理、无代理进程、无代理环境变量;**hf-mirror.com 直连 200**、pypi(清华镜像)200、huggingface.co 000 |
+| `pip install cn-clip` | 失败:`lmdb` 需本地编译(仅训练数据管线用)。改 `--no-deps` 装,`from cn_clip.clip import load_from_name` 正常 → **lmdb 确实不需要** |
+| 权重下载 | cn-clip 1.6 只认原始命名(`ViT-B-16` 等,HF 名是 2.x 特性);`HF_ENDPOINT=https://hf-mirror.com` 下 `clip_cn_vit-b-16.pt`(~600MB)成功 |
+| torch 影响 | **无**:torch 2.14.0+cpu / transformers / sentence-transformers 版本均未变 |
+
+### 接线(让图像向量真的被用起来)
+
+| 层 | 改动 |
+|---|---|
+| `embeddings.ImageEmbedder` | 默认模型改 `ViT-B-16`;新增 `encode_text`(文字搜画面)与 `encode_image_batch`;`available()` 要求"cn_clip 已装 **且权重已在本地**"——托盘用 `HF_HUB_OFFLINE=1` 启动,不能在运行期偷偷联网 |
+| `vector_store` | 新增 `query_image`(文本向量或图像向量皆可)与 `count_image` |
+| `memory.search_images` | 文字 → CLIP 文本编码 → 图像集合检索 → 返回 {score, chunk, item}(带 media_path/start_ts);嵌入器缺失时安静返回 [] |
+| `pipeline/video.py` | 抽帧入库时带上图像嵌入器(`vision.image_embed.enabled: auto/off`) |
+| `scripts/embed_images.py` | **存量回填**:把 `embed_status='pending'` 的图像块批量补索引(批量 8 张) |
+| 检索页 | 新增「🖼 相关画面」区块(缩略图 + 条目 + 时间戳 + 相似度);有未索引帧时提示跑回填脚本 |
+
+### 验证
+
+- 单测 6 例(假 CLIP:管线索引、文字搜画面命中、无嵌入器安静降级、面板渲染),全套 **113 passed**;
+- 真机:回填 104 个存量帧后,检索页搜「冰淇淋」出现 #14 的画面墙(见下方记录)。

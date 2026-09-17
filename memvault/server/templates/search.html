@@ -1,7 +1,29 @@
 {% extends "base.html" %}
 {% block title %}搜索 · MemVault{% endblock %}
 {% block content %}
-<h3 style="margin:4px 0 12px">“{{ q }}” 的检索结果({{ results|length }})</h3>
+<h3 style="margin:4px 0 12px">“{{ q }}” 的检索结果({{ results|length }}{% if images %} + 画面 {{ images|length }}{% endif %})</h3>
+
+{% if images %}
+<div class="card">
+  <p class="muted" style="margin:0 0 8px">🖼 相关画面(Chinese-CLIP 文字搜画面,按相似度排序)
+    {% if not images_ready %}<span class="tag warn">部分帧未建图像向量,跑 scripts/embed_images.py 可补全</span>{% endif %}
+  </p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px">
+    {% for r in images %}
+    <a href="/items/{{ r.item.id }}" style="text-decoration:none;color:inherit">
+      {% if r.chunk.media_url %}<img src="{{ r.chunk.media_url }}" loading="lazy"
+           style="width:100%;height:96px;object-fit:cover;border-radius:6px;border:1px solid var(--card-border)">{% endif %}
+      <div class="muted" style="font-size:12px;margin-top:4px">
+        #{{ r.item.id }} {{ r.item.title[:16] }}
+        {% if r.chunk.start_ts is not none %}· {{ r.chunk.start_ts|ts }}{% endif %}
+        · {{ '%.2f'|format(r.score) }}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% for r in results %}
 <div class="card">
   <h3><a href="/items/{{ r.item.id }}">{{ r.item.title }}</a></h3>

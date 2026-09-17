@@ -16,6 +16,13 @@ def _is_bv(source: str) -> bool:
     return "bilibili.com" in s or "b23.tv" in s or s.startswith("bv")
 
 
+def _image_embed_enabled(cfg: dict) -> bool:
+    """是否给抽到的帧建图像向量(config.vision.image_embed.enabled: auto/on/off)。"""
+    mode = str(((cfg.get("vision") or {}).get("image_embed") or {})
+               .get("enabled", "auto")).lower()
+    return mode != "off"
+
+
 def should_ocr(cfg: dict, speech_seconds: float,
                duration: float) -> tuple[bool, str]:
     """要不要对抽到的帧跑 OCR,返回 (是否, 原因)。
@@ -125,9 +132,13 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
     )
 
     # 4) 帧入库(图像 chunk)。OCR 放到 ASR 之后:要不要跑要先看有多少语音
+    #    图像向量:装了 Chinese-CLIP 且权重就绪时顺手索引(文字搜画面用)
+    ib = memory.image_embedder if _image_embed_enabled(cfg) else None
     for i, fr in enumerate(frame_list):
-        memory.add_image_chunk(item_id, fr["path"], start_ts=fr["ts"], seq=i)
-    progress(f"帧入库 {len(frame_list)} 张")
+        memory.add_image_chunk(item_id, fr["path"], start_ts=fr["ts"], seq=i,
+                               image_embedder=ib)
+    progress(f"帧入库 {len(frame_list)} 张"
+             + ("(含图像向量)" if ib is not None else "(图像向量未启用)"))
 
     # 5) ASR 转写 → 合并碎句 → 批量嵌入(一次编码代替数百次)
     acfg = cfg.get("asr", {})

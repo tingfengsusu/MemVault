@@ -56,6 +56,29 @@ class VectorStore:
             for cid, d, m in zip(ids, distances, metadatas)
         ]
 
+    def count_image(self) -> int:
+        try:
+            return self.image.count()
+        except Exception:  # noqa: BLE001 — 集合不存在视为空
+            return 0
+
+    def query_image(self, vector, where=None, k=10) -> list[dict]:
+        """向量检索图像块(传入文本向量即"文字搜画面",传入图像向量即"以图搜图")。"""
+        if self.count_image() == 0:
+            return []
+        res = self.image.query(
+            query_embeddings=[vector],
+            n_results=min(k, max(1, self.count_image())),
+            where=where or None,
+        )
+        ids = res.get("ids", [[]])[0]
+        distances = res.get("distances", [[]])[0]
+        metadatas = res.get("metadatas", [[]])[0]
+        return [
+            {"chunk_id": int(cid), "distance": d, "metadata": m or {}}
+            for cid, d, m in zip(ids, distances, metadatas)
+        ]
+
     def delete_by_item_ids(self, item_ids: list[int]):
         """删除这些条目在文本/图像向量库中的全部向量(条目重采集时清理)。"""
         if not item_ids:
