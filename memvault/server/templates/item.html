@@ -35,10 +35,21 @@
     {% endif %}
   </div>
   {% if item.auto_note %}<p class="muted">自动分析:{{ item.auto_note }}</p>{% endif %}
-  {% if item.attrs_json and item.attrs_json != '{}' %}
+  {% set ai_attrs = item.attrs_ai | from_json_attr %}
+  {% if ai_attrs %}
+    <p class="muted" style="margin:8px 0 2px">AI 提取(重新分析会整体替换)</p>
     <table>
-      {% for k, v in item.attrs_json | from_json_attr %}
-        <tr><th style="width:90px">{{ k }}</th><td>{{ v }}</td></tr>
+      {% for k, v in ai_attrs %}
+        <tr><th style="width:110px">{{ k }}</th><td>{{ v }}</td></tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+  {% set raw_attrs = item.attrs_json | from_json_attr %}
+  {% if raw_attrs %}
+    <p class="muted" style="margin:8px 0 2px">原始属性(采集时记录)</p>
+    <table>
+      {% for k, v in raw_attrs %}
+        <tr><th style="width:110px">{{ k }}</th><td>{{ v }}</td></tr>
       {% endfor %}
     </table>
   {% endif %}

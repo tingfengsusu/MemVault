@@ -78,7 +78,7 @@ def test_extract_updates_attrs(memory, pstore):
     result = extract_item(memory, llm, pstore, item_id)
     import json
 
-    attrs = json.loads(memory.get_item(item_id)["attrs_json"])
+    attrs = json.loads(memory.get_item(item_id)["attrs_ai"])
     assert attrs["食材"] == "生抽"
     assert "用量" not in attrs  # null 字段不落库
     assert result["category"] == "家常菜"
@@ -227,3 +227,34 @@ def test_proposal_fallback_from_reason(memory, pstore, cfg):
     result = route_item(memory, llm, pstore, item_id, cfg)
     assert result["action"] == "proposed"
     assert memory.db.get_category(result["category_id"])["name"] == "技术笔记"
+
+
+def test_extract_is_idempotent_no_key_accumulation(memory, pstore):
+    """重新分析整体替换 attrs_ai,不同轮次的同义键不会累积(修复 #154 的15键问题)。"""
+    cat_id = memory.db.add_category("cooking", "家常菜")
+    item_id = memory.add_item("cooking", "video", "红烧肉",
+                              content_text="两勺生抽小火炖", category_id=cat_id)
+    import json
+
+    llm1 = StubLLM([{"核心结论": "A", "成本数据": "10元"}])
+    extract_item(memory, llm1, pstore, item_id)
+    assert len(json.loads(memory.get_item(item_id)["attrs_ai"])) == 2
+
+    llm2 = StubLLM([{"核心结论": "B", "关键要点": "C"}])  # 换了一组键名
+    extract_item(memory, llm2, pstore, item_id)
+    attrs = json.loads(memory.get_item(item_id)["attrs_ai"])
+    assert set(attrs.keys()) == {"核心结论", "关键要点"}  # 旧键被整体替换
+    assert attrs["核心结论"] == "B"
+
+
+def test_extract_keeps_product_raw_attrs(memory, pstore):
+    """商品采集时预写的价格/店铺在 attrs_json 中不受 AI 提取影响。"""
+    item_id = memory.add_item("shopping", "product", "外套",
+                              attrs={"price": "199元", "shop": "京东"})
+    llm = StubLLM([{"颜色": "藏青"}])
+    extract_item(memory, llm, pstore, item_id)
+    import json
+
+    item = memory.get_item(item_id)
+    assert json.loads(item["attrs_json"])["price"] == "199元"
+    assert json.loads(item["attrs_ai"])["颜色"] == "藏青"
