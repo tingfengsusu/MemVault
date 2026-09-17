@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}设置 · MemVault{% endblock %}
+{% block content %}
+<h3 style="margin:4px 0 12px">API 设置</h3>
+
+{% if saved %}<div class="card" style="border-color:#a7f3d0"><span class="tag ok">✔ 已保存,即刻生效(无需重启)</span></div>{% endif %}
+{% if test_result %}
+<div class="card"><span class="tag {{ 'ok' if '成功' in test_result else 'bad' }}">连接测试:</span>
+  <span class="snippet">{{ test_result }}</span></div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/settings/save" style="display:grid;gap:10px;max-width:560px">
+    <label>接口地址(base_url)
+      <input name="base_url" value="{{ llm.base_url or '' }}" required
+             style="width:100%;padding:6px 10px;margin-top:4px">
+      <span class="muted">DeepSeek 官方:https://api.deepseek.com/v1;兼容 OpenAI 格式的其他服务填各自地址</span>
+    </label>
+    <label>模型名(model)
+      <input name="model" value="{{ llm.model or '' }}" required
+             style="width:100%;padding:6px 10px;margin-top:4px">
+      <span class="muted">如 deepseek-chat / deepseek-reasoner,或其他服务商的模型名</span>
+    </label>
+    <label>API Key(留空则不修改)
+      <input name="api_key" placeholder="当前:{{ key_masked }}"
+             style="width:100%;padding:6px 10px;margin-top:4px">
+      <span class="muted">保存到本机 .env(git 已忽略),不会出现在配置文件里</span>
+    </label>
+    <label>自动归档置信度阈值(classify_confidence)
+      <input name="classify_confidence" type="number" step="0.05" min="0" max="1"
+             value="{{ llm.classify_confidence or 0.8 }}"
+             style="width:120px;padding:6px 10px;margin-top:4px">
+      <span class="muted">≥ 该值且分类明确时自动归档;0.5~该值之间走"提议待确认";再低留待整理箱</span>
+    </label>
+    <div><button>保存并立即生效</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <form class="inline" method="post" action="/settings/test"><button class="ghost">🔌 测试连接</button></form>
+  <span class="muted">用当前配置发一次最小请求,验证地址/模型/密钥是否可用</span>
+</div>
+
+<h3 style="margin:16px 0 8px">其他配置(只读,改 config.yaml 后重启)</h3>
+<div class="card">
+  <table>
+    <tr><th style="width:200px">语音识别模型</th><td>{{ asr.model }}({{ asr.device }})</td></tr>
+    <tr><th>识别领域提示词</th><td class="muted">{{ asr.initial_prompt }}</td></tr>
+    <tr><th>文本嵌入模型</th><td>{{ emb.text_model }}</td></tr>
+  </table>
+</div>
+{% endblock %}

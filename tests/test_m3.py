@@ -258,3 +258,23 @@ def test_extract_keeps_product_raw_attrs(memory, pstore):
     item = memory.get_item(item_id)
     assert json.loads(item["attrs_json"])["price"] == "199元"
     assert json.loads(item["attrs_ai"])["颜色"] == "藏青"
+
+
+def test_proposal_reuses_existing_same_name_category(memory, pstore, cfg):
+    """提议同名分类时复用已有分类,不再创建重复(修复分类树出现两个'技术笔记')。"""
+    cat_id = memory.db.add_category("general", "技术笔记")  # active
+    item1 = memory.add_item("general", "video", "评测1", content_text="x")
+    llm = StubLLM([{"category_id": None, "new_category": {"name": "技术笔记"},
+                    "confidence": 0.9, "reason": "归类"}])
+    r = route_item(memory, llm, pstore, item1, cfg)
+    assert r["action"] == "filed" and r["category_id"] == cat_id
+    assert len([c for c in memory.db.categories("general")
+                if c["name"] == "技术笔记"]) == 1
+
+    item2 = memory.add_item("general", "video", "评测2", content_text="y")
+    llm2 = StubLLM([{"category_id": None, "new_category": {"name": "技术笔记"},
+                     "confidence": 0.6, "reason": "归类"}])
+    r2 = route_item(memory, llm2, pstore, item2, cfg)
+    assert r2["action"] == "proposed" and r2["category_id"] == cat_id
+    assert len([c for c in memory.db.categories("general")
+                if c["name"] == "技术笔记"]) == 1
