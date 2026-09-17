@@ -1,7 +1,7 @@
 /* ============================================================
    MemVault 主题「Notion 极简白」(分支 theme-notion)
-   参考:Notion / Karakeep — 纯白、黑字、黑色主按钮、细分割线、
-   克制的灰阶,几乎无圆角阴影,信息密度优先。
+   视觉结构在 base.css;本文件只提供配色变量与主题特色微调。
+   参考:Notion / Karakeep — 纯白、黑字、黑色主按钮、细分割线、克制灰阶。
    ============================================================ */
 :root {
   --bg: #ffffff;
@@ -17,78 +17,13 @@
   --btn-ghost-bg: #ffffff;
   --btn-ghost-border: #e3e2e0;
   --input-border: #e3e2e0;
+  --tag-gray-bg: #f1f1ef;
   --radius: 4px;             /* Notion 小圆角 */
 }
-
-* { box-sizing: border-box; }
-body {
-  font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
-  margin: 0; background: var(--bg); color: var(--text);
-  -webkit-font-smoothing: antialiased;
-}
-
-/* ── 顶栏:细分割线,黑字导航,当前页可加下划线 ── */
-header {
-  background: var(--header-bg); color: var(--text);
-  border-bottom: 1px solid var(--header-border);
-  padding: 10px 24px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
-  position: sticky; top: 0; z-index: 10;
-}
-header nav { display: flex; gap: 16px; }
-header a { color: var(--muted); text-decoration: none; font-size: 14px; padding: 2px 0; }
-header a:hover { color: var(--text); border-bottom: 2px solid var(--text); }
-.brand { font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: .2px; }
-
-/* ── 布局与卡片:去阴影,靠 1px 细线分区 ── */
-main { max-width: 980px; margin: 24px auto; padding: 0 20px; }
-.card {
-  background: var(--card-bg); border: 1px solid var(--card-border);
-  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 0;
-  border-bottom-width: 0;            /* 合并成连续列表线 */
-}
-.card:last-of-type { border-bottom-width: 1px; }
-.card h3 { margin: 0 0 6px; font-size: 15px; }
-.card h3 a { color: var(--text); text-decoration: none; }
-.card h3 a:hover { color: var(--accent); text-decoration: underline; }
-.muted { color: var(--muted); font-size: 12px; }
-.snippet {
-  font-size: 13px; color: var(--text); margin-top: 4px;
-  white-space: pre-wrap; word-break: break-all; opacity: .85;
-}
-
-/* ── 标签:灰阶 ── */
-.tag {
-  display: inline-block; background: var(--accent-soft); color: var(--accent-text);
-  border-radius: 3px; padding: 1px 6px; font-size: 11px; margin-right: 4px;
-}
-.tag.gray { background: #f1f1ef; color: var(--muted); }
-.tag.warn { background: #fbf3db; color: #8a6d1a; }
-.tag.ok   { background: #edf3ed; color: #3a6b3a; }
-.tag.bad  { background: #fbeeee; color: #a33a3a; }
-
-/* ── 表格 ── */
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--card-border); vertical-align: top; }
-th { color: var(--muted); font-weight: 500; }
-
-/* ── 表单控件 ── */
-button {
-  background: var(--accent); color: #fff; border: 0; border-radius: var(--radius);
-  padding: 5px 12px; font-size: 13px; cursor: pointer;
-}
-button:hover { background: #3d3d3c; }
-button.ghost { background: var(--btn-ghost-bg); color: var(--text); border: 1px solid var(--btn-ghost-border); }
-button.ghost:hover { background: #f6f5f4; }
-input[type=search], input[type=text], select, textarea {
-  padding: 6px 10px; border: 1px solid var(--input-border); border-radius: var(--radius);
-  background: var(--card-bg); color: var(--text); font-size: 13px;
-}
-input[type=search]:focus, input[type=text]:focus { outline: 1px solid var(--text); border-color: var(--text); }
-
-/* ── 杂项 ── */
-.ts { font-family: Consolas, monospace; background: #f6f5f4; border-radius: 3px; padding: 0 4px; font-size: 12px; }
-.jump { font-size: 12px; color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
-img.thumb { max-width: 180px; border-radius: 3px; border: 1px solid var(--card-border); display: block; margin-top: 6px; }
-.chips { display: flex; gap: 10px; margin-bottom: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
-.chips b { color: var(--text); }
-form.inline { display: inline; }
+/* 主题特色微调 */
+button:hover { background: #3d3d3c; opacity: 1; }
+button.ghost:hover { background: #f6f5f4; border-color: var(--btn-ghost-border); color: var(--text); }
+input:focus, select:focus, textarea:focus { box-shadow: none; border-color: var(--text); }
+.card:hover { border-color: var(--card-border); box-shadow: none; }
+header nav a.active { background: transparent; color: var(--text); font-weight: 700; }
+.jump { text-decoration: underline; text-underline-offset: 2px; }
