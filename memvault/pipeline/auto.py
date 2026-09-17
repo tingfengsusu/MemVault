@@ -24,9 +24,9 @@ def auto_process(payload: dict, memory, cfg: dict, llm=None,
 
     pstore.ensure_seed()
     result = route_item(memory, llm, pstore, item_id, cfg)
-    if result["action"] in ("filed", "proposed"):
-        try:
-            extract_item(memory, llm, pstore, item_id)
-        except Exception as e:  # noqa: BLE001 — 提取失败不影响已完成的分类
-            logger.warning("item=%s 属性提取失败:%s", item_id, e)
+    # 无论路由结果如何都提取属性:留箱条目也要有可读的内容摘要(M3 缺陷修复)
+    try:
+        extract_item(memory, llm, pstore, item_id)
+    except Exception as e:  # noqa: BLE001 — 提取失败不影响已完成的分类
+        logger.warning("item=%s 属性提取失败:%s", item_id, e)
     return result
