@@ -310,8 +310,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         for c in memory.db.categories():
             c["item_count"] = memory.db.count_items(category_id=c["id"])
             groups[c["domain"]].append(c)
+        # 领域候选:已有分类的领域 + 条目实际用到的领域(输入框给下拉建议,仍可手填新领域)
+        domains = sorted(set(groups) | {d["domain"] for d in memory.db.items_by_domain()})
         return templates.TemplateResponse(request, "categories.html",
-            ctx(request, groups=dict(groups)))
+            ctx(request, groups=dict(groups), domains=domains))
 
     @app.post("/categories/add")
     def categories_add(domain: str = Form(...), name: str = Form(...)):

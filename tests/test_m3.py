@@ -183,6 +183,20 @@ def test_panel_categories_flow(api_client):
     assert app.state.memory.db.get_category(cat_id)["status"] == "active"
 
 
+def test_panel_category_domain_suggestions(api_client):
+    """领域输入框要带已有领域下拉建议(不用每次手打全名)。"""
+    client, app = api_client
+    app.state.memory.add_item("general", "video", "某某视频")
+    app.state.memory.add_item("reading", "doc", "某本书")
+    app.state.memory.db.add_category("fitness", "胸部")
+
+    html = client.get("/categories").text
+    assert '<datalist id="domain-options">' in html
+    for d in ("general", "reading", "fitness"):   # 条目领域 + 已建分类领域
+        assert f'<option value="{d}">' in html
+    assert 'list="domain-options"' in html        # 输入框仍可手填新领域
+
+
 def test_panel_reanalyze_enqueues_job(api_client):
     client, app = api_client
     item_id = app.state.memory.add_item("general", "page", "待分析",

@@ -4,8 +4,11 @@
 <h3 style="margin:4px 0 12px">分类树</h3>
 <div class="card">
   <form method="post" action="/categories/add" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <input name="domain" placeholder="领域,如 fitness/shopping" required
+    <input name="domain" list="domain-options" placeholder="领域,如 fitness/shopping" required
            style="padding:6px 10px;border:1px solid var(--input-border);border-radius:6px;width:200px">
+    <datalist id="domain-options">
+      {% for d in domains %}<option value="{{ d }}"></option>{% endfor %}
+    </datalist>
     <input name="name" placeholder="新分类名称" required
            style="padding:6px 10px;border:1px solid var(--input-border);border-radius:6px;width:200px">
     <button>添加分类</button>
