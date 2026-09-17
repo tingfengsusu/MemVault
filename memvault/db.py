@@ -457,6 +457,40 @@ class Database:
                      (category_id,))
         conn.commit()
 
+    def delete_category(self, category_id: int) -> dict | None:
+        """删除分类,并把它牵连的数据处理干净(返回各项计数;分类不存在返回 None)。
+
+        - 分类下的条目:退回待整理箱(filed → inbox,category_id 置空),
+          这样还能重新走一次自动分类,不会变成无归属的孤儿;
+        - 该分类的提示词版本与质疑记录:删除(分类没了,专属提示词失去意义);
+        - 绑到该分类的 UP主规则:删除(否则规则指向不存在的分类);
+        - 子分类(如果有):parent_id 置空,不做级联删除。
+        """
+        cat = self.get_category(category_id)
+        if not cat:
+            return None
+        conn = self._conn()
+        items = conn.execute(
+            "UPDATE items SET category_id=NULL,"
+            " status=CASE WHEN status='filed' THEN 'inbox' ELSE status END"
+            " WHERE category_id=?", (category_id,)).rowcount
+        prompts = conn.execute(
+            "SELECT COUNT(*) FROM prompts WHERE category_id=?",
+            (category_id,)).fetchone()[0]
+        conn.execute(
+            "DELETE FROM prompt_feedback WHERE prompt_id IN"
+            " (SELECT id FROM prompts WHERE category_id=?)", (category_id,))
+        conn.execute("DELETE FROM prompts WHERE category_id=?", (category_id,))
+        up_rules = conn.execute(
+            "DELETE FROM up_categories WHERE category_id=?",
+            (category_id,)).rowcount
+        conn.execute("UPDATE categories SET parent_id=NULL WHERE parent_id=?",
+                     (category_id,))
+        conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
+        conn.commit()
+        return {"name": cat["name"], "domain": cat["domain"], "items": items,
+                "prompts": prompts, "up_rules": up_rules}
+
     def get_category(self, category_id: int) -> dict | None:
         row = self._conn().execute(
             "SELECT * FROM categories WHERE id=?", (category_id,)

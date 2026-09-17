@@ -31,6 +31,10 @@
     {% else %}
       <span class="tag gray">使用中</span>
     {% endif %}
+    <form class="inline" method="post" action="/categories/{{ c.id }}/delete"
+          onsubmit="return confirm('删除分类「{{ c.name }}」?\n{% if c.item_count %}该分类下 {{ c.item_count }} 个条目会退回待整理箱。{% endif %}该分类的专属提示词与 UP主规则也会一并删除。')">
+      <button class="ghost">🗑 删除</button>
+    </form>
   </div>
   {% endfor %}
 </div>

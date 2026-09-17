@@ -333,6 +333,17 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         memory.db.confirm_category(category_id)
         return RedirectResponse("/categories", status_code=303)
 
+    @app.post("/categories/{category_id}/delete")
+    def categories_delete(category_id: int):
+        """删除分类:条目退回待整理箱,专属提示词/UP规则一并清理。"""
+        info = memory.db.delete_category(category_id)
+        if info is None:
+            raise HTTPException(404)
+        logger.info("删除分类 %s/%s:条目退回 %d 条,清理提示词 %d 条、UP规则 %d 条",
+                    info["domain"], info["name"], info["items"],
+                    info["prompts"], info["up_rules"])
+        return RedirectResponse("/categories", status_code=303)
+
     @app.post("/items/{item_id}/bind-up")
     def bind_up(item_id: int, category_id: str = Form(...), up_mid: str = Form(""),
                 up_name: str = Form("")):

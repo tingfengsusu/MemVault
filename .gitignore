@@ -11,3 +11,4 @@ config/*.local.yaml
 config/cookies.txt
 *.txt
 !requirements*.txt
+temp/

@@ -506,3 +506,51 @@ def test_panel_bind_up_and_list(api_client):
                      follow_redirects=False)
     assert r2.status_code == 303
     assert app.state.memory.db.up_rules() == []
+
+
+def test_delete_category_returns_items_to_inbox(memory):
+    """删除分类:条目退回待整理箱,专属提示词/质疑与 UP 规则一并清理。"""
+    cat = memory.db.add_category("general", "临时分类")
+    keep = memory.db.add_category("general", "保留分类")
+    pstore = PromptStore(memory.db)
+    pstore.ensure_seed()
+    pstore.new_version("extract", "extract", "该分类专属提示词", category_id=cat)
+
+    item_filed = memory.db.add_item("general", "video", "归好的", status="filed",
+                                    category_id=cat)
+    item_inbox = memory.db.add_item("general", "video", "还在箱里",
+                                    category_id=cat, status="inbox")
+    other = memory.db.add_item("general", "video", "别人的", status="filed",
+                               category_id=keep)
+    memory.db.bind_up_category("555", "某UP", cat)
+
+    info = memory.db.delete_category(cat)
+    assert info["name"] == "临时分类" and info["items"] == 2
+    assert info["prompts"] == 1 and info["up_rules"] == 1
+
+    assert memory.db.get_category(cat) is None
+    a = memory.get_item(item_filed)
+    assert a["category_id"] is None and a["status"] == "inbox"   # filed → inbox
+    b = memory.get_item(item_inbox)
+    assert b["category_id"] is None and b["status"] == "inbox"
+    assert memory.get_item(other)["category_id"] == keep          # 别的分类不动
+    assert memory.db.up_category("555") is None
+    n = memory.db._conn().execute(
+        "SELECT COUNT(*) FROM prompts WHERE category_id=?", (cat,)).fetchone()[0]
+    assert n == 0
+
+
+def test_delete_category_missing_and_panel(api_client):
+    """删除不存在的分类 → 404;面板删除后列表里消失。"""
+    client, app = api_client
+    assert app.state.memory.db.delete_category(9999) is None
+    assert client.post("/categories/9999/delete",
+                       follow_redirects=False).status_code == 404
+
+    cat = app.state.memory.db.add_category("general", "要删掉的")
+    page = client.get("/categories").text
+    assert "要删掉的" in page and "🗑 删除" in page
+
+    r = client.post(f"/categories/{cat}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert "要删掉的" not in client.get("/categories").text
