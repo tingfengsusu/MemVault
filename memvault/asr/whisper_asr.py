@@ -17,18 +17,33 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_cuda_dlls():
-    """Windows:把 pip 安装的 nvidia CUDA 库目录加入 DLL 搜索路径,
-    供 CTranslate2(GPU 推理)加载 cublas/cudnn。"""
+    """Windows:让 CTranslate2 能找到 pip 安装的 CUDA 库(cublas/cudnn)。
+
+    仅 add_dll_directory 不够(实测报 cublas64_12.dll not found):
+    需要三管齐下——加 DLL 搜索目录 + 写 PATH + ctypes 预加载。
+    """
     if os.name != "nt":
         return
-    for pkg in ("cublas", "cudnn"):
-        dll_dir = (Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
-                   / pkg / "bin")
-        if dll_dir.exists():
-            try:
-                os.add_dll_directory(str(dll_dir))
-            except OSError:
-                pass
+    import ctypes
+
+    base = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+    dirs = [str(base / pkg / sub)
+            for pkg in ("cublas", "cudnn")
+            for sub in ("bin", "lib")
+            if (base / pkg / sub).exists()]
+    if not dirs:
+        return
+    for d in dirs:
+        try:
+            os.add_dll_directory(d)
+        except OSError:
+            pass
+    os.environ["PATH"] = os.pathsep.join(dirs + [os.environ.get("PATH", "")])
+    for name in ("cublasLt64_12.dll", "cublas64_12.dll", "cudnn64_9.dll"):
+        try:
+            ctypes.WinDLL(name)
+        except OSError:
+            pass
 
 
 def _resolve_device(device: str, compute_type: str) -> tuple[str, str]:

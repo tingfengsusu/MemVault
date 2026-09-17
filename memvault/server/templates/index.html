@@ -23,7 +23,7 @@
     <a href="/items/{{ it.id }}"><img class="thumb-top" src="{{ it.thumb }}" loading="lazy" alt=""></a>
     {% endif %}
     <div class="tile-body">
-      <h3><span>{{ icons.get(it.type, '📄') }}</span><a href="/items/{{ it.id }}">{{ it.title }}</a></h3>
+      <h3><span>{{ icons.get(it.type, '📄') }}</span><a class="stretch" href="/items/{{ it.id }}">{{ it.title }}</a></h3>
       <div class="meta">
         <span class="dot dot-{{ it.domain }}" title="{{ it.domain }}"></span>
         <span class="muted">{{ it.domain }}</span>

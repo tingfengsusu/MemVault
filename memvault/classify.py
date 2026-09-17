@@ -11,12 +11,22 @@ _PROPOSAL_RE = re.compile(
     r"([^\s(（\[,。;:「」\"']{2,15})"
 )
 
+# 从理由文本抓来的名字常带语气填充词,剥离后再用(否则会造出
+# "心理学书籍最合适"这种和已有分类仅差后缀的重复)
+_FILLER_TAIL = ("最合适", "较合适", "更合适", "比较合适", "最为合适",
+                "合适", "为宜", "较好", "最佳", "妥当", "最好", "即可")
+
 
 def _proposal_from_reason(reason: str) -> str | None:
     m = _PROPOSAL_RE.search(reason or "")
     if not m:
         return None
     name = m.group(1).rstrip("分类标签类目")
+    # 长词优先匹配("比较合适" 必须先于 "较合适")
+    for filler in sorted(_FILLER_TAIL, key=len, reverse=True):
+        if name.endswith(filler):
+            name = name[:-len(filler)]
+            break
     return name or None
 
 

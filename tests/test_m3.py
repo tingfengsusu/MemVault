@@ -278,3 +278,23 @@ def test_proposal_reuses_existing_same_name_category(memory, pstore, cfg):
     assert r2["action"] == "proposed" and r2["category_id"] == cat_id
     assert len([c for c in memory.db.categories("general")
                 if c["name"] == "技术笔记"]) == 1
+
+
+def test_proposal_strips_filler_words(memory, pstore, cfg):
+    """理由文本里的语气词要剥离,避免'心理学书籍最合适'式重复分类。"""
+    from memvault.classify import _proposal_from_reason
+
+    assert _proposal_from_reason("归入心理学书籍最合适") == "心理学书籍"
+    assert _proposal_from_reason("归类为技术笔记比较合适") == "技术笔记"
+    assert _proposal_from_reason("建议新增「穿搭灵感」为宜") == "穿搭灵感"
+
+    memory.db.add_category("reading", "心理学书籍")  # 已有 active
+    item_id = memory.add_item("reading", "doc", "《影响力》",
+                              content_text="心理学经典")
+    llm = StubLLM([{"category_id": None, "new_category": None, "confidence": 0.6,
+                    "reason": "属于心理学拆解,归入心理学书籍最合适"}])
+    r = route_item(memory, llm, pstore, item_id, cfg)
+    assert r["action"] == "proposed"
+    cats = [c for c in memory.db.categories("reading")
+            if c["name"] == "心理学书籍"]
+    assert len(cats) == 1  # 复用了已有分类,没有新建重复
