@@ -126,19 +126,12 @@ def extract_item(memory, llm, pstore, item_id: int) -> dict:
         )[:2000]
     resp = llm.chat_json(system, f"条目标题:{item['title']}\n条目内容:\n{text[:3000]}")
 
-    # 合并进现有 attrs(保护 ingest_product 预写的价格/图片等字段);
-    # LLM 返回 null 的键不写入
-    merged = {}
-    try:
-        merged.update(json.loads(item.get("attrs_json") or "{}"))
-    except json.JSONDecodeError:
-        pass
-    for k, v in resp.items():
-        if v is not None:
-            merged[k] = v
+    # 写入独立的 attrs_ai 字段:整体替换保证"重新分析"幂等
+    # (attrs_json 保留给采集时预写的原始属性,如商品价格/店铺)
+    extracted = {k: v for k, v in resp.items() if v is not None}
     memory.db._conn().execute(
-        "UPDATE items SET attrs_json=? WHERE id=?",
-        (json.dumps(merged, ensure_ascii=False), item_id),
+        "UPDATE items SET attrs_ai=? WHERE id=?",
+        (json.dumps(extracted, ensure_ascii=False), item_id),
     )
     memory.db._conn().commit()
-    return {"attrs": merged, "category": cat_name}
+    return {"attrs": extracted, "category": cat_name}

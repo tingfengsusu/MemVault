@@ -150,6 +150,21 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN auto_note TEXT")
         if not has_col("watch_sources", "label"):
             conn.execute("ALTER TABLE watch_sources ADD COLUMN label TEXT")
+        if not has_col("items", "attrs_ai"):
+            conn.execute("ALTER TABLE items ADD COLUMN attrs_ai TEXT DEFAULT '{}'")
+            # 一次性迁移:历史的 AI 提取属性挪到 attrs_ai
+            # (product 的 attrs_json 是采集时预写的价格/店铺,保留不动)
+            rows = conn.execute(
+                "SELECT id, attrs_json FROM items WHERE type != 'product'"
+                " AND attrs_json IS NOT NULL AND attrs_json != '{}'").fetchall()
+            for r in rows:
+                conn.execute(
+                    "UPDATE items SET attrs_ai=?, attrs_json='{}' WHERE id=?",
+                    (r["attrs_json"], r["id"]))
+            if rows:
+                import logging as _log
+                _log.getLogger(__name__).info(
+                    "迁移:%d 条目的 AI 属性移入 attrs_ai", len(rows))
         # 旧数据日志时间是 ISO 'T' 分隔,与 SQLite datetime() 的空格格式混用
         n = conn.execute(
             "UPDATE logs SET happened_at = REPLACE(happened_at, 'T', ' ')"

@@ -21,15 +21,20 @@
 </div>
 <script>
 const log = document.getElementById('log');
-function add(who, text, meta) {
+function buildMsg(who, text, meta) {
   const d = document.createElement('div');
   d.className = 'card';
   d.innerHTML = `<span class="tag">${who}</span>` +
     `<div class="snippet" style="margin-top:6px"></div>` +
     (meta ? `<div class="muted" style="margin-top:4px">${meta}</div>` : '');
   d.querySelector('.snippet').textContent = text;
+  return d;
+}
+function add(who, text, meta) {
+  const d = buildMsg(who, text, meta);
   log.appendChild(d);
   d.scrollIntoView({behavior: 'smooth'});
+  return d;
 }
 async function send() {
   const inp = document.getElementById('msg');
@@ -38,6 +43,7 @@ async function send() {
   if (!text) return;
   inp.value = '';
   add('我', text);
+  const pending = add('MemVault', '思考中…');
   try {
     const r = await fetch('/api/chat', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -45,7 +51,7 @@ async function send() {
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      add('系统', err.detail || ('请求失败 ' + r.status));
+      pending.replaceWith(buildMsg('系统', err.detail || ('请求失败 ' + r.status)));
       return;
     }
     const data = await r.json();
@@ -54,9 +60,9 @@ async function send() {
       bits.push('已存入画像:' + data.profile_saved.join('、'));
     if (data.log_saved) bits.push('已记入日志');
     if (data.context_used) bits.push('检索命中 ' + data.context_used + ' 条');
-    add('MemVault', data.reply, bits.join(' · '));
+    pending.replaceWith(buildMsg('MemVault', data.reply, bits.join(' · ')));
   } catch (e) {
-    add('系统', '连接失败:' + e);
+    pending.replaceWith(buildMsg('系统', '连接失败:' + e));
   }
 }
 </script>
