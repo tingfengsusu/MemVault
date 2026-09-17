@@ -50,7 +50,9 @@ def load_config(path=None) -> dict:
     loaded = {}
     if p.exists():
         loaded = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    return _deep_merge(DEFAULTS, loaded)
+    cfg = _deep_merge(DEFAULTS, loaded)
+    cfg["_config_path"] = str(p)  # 供设置页回写
+    return cfg
 
 
 def data_dir(cfg: dict) -> Path:

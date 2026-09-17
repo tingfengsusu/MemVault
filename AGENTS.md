@@ -14,21 +14,46 @@ MemVault：本地优先的个人多模态记忆库（视频/网页/商品 → �
 
 ## 服务管理（最重要：必须分离式启动）
 
-`python -m memvault tray` 是**常驻进程，永不退出**。在前面直接跑它（前台或任务里），
+`python -m memvault tray` 是**常驻进程，永不退出**。前面直接跑它（前台或任务里），
 任务系统会永远显示“正在获取任务输出”并挂起——这是设计使然，不是故障。
 
-**启动/重启服务一律使用分离式启动（detached），禁止前台直接运行：**
+**已实测确认的根因（2026-09-17，勿再踩）**：工具调用结束的条件是**整条命令的进程树/管道全部结束**。
+只要还有存活成员，调用就永远不结束：
+
+1. **前台跑 tray** → 命令本体永不退出 → 卡死；
+2. **启动命令里接 `| tail` / `| head` / 任何原生管道读取器** → 被启动的托盘继承了
+   管道的写端句柄，读取器永远等不到 EOF → 卡死（**即使 Start-Process 重定向了
+   stdout/stderr 也没用**，这正是父会话踩的坑）。
+3. 只有部分命令能幸免：纯 PowerShell 内存内管道（如 `| Select-Object -ExpandProperty Id`）
+   不产生额外进程，因此不阻塞。
+
+### 正确做法（三条铁律）
+
+1. **启动/重启命令独立成一次工具调用**，里面只放启动动作，不与其他工作串联；
+   健康检查放到下一次调用（`curl -s http://127.0.0.1:8765/api/health`）；
+2. **绝不拼原生管道**——不要 `| tail -1`、`2>&1 | tail`、`| head`；需要看输出就
+   重定向到文件再另起一次调用读取；
+3. 启动调用**优先以“解除沙箱”权限执行**（本环境实测：同样命令解除沙箱后秒回）；
+   或使用 schtasks 托管：`schtasks /Run /TN MemVault`（装过 autostart 才有）。
 
 ```powershell
-# 1) 停掉旧实例（按命令行匹配，连壳带真身一起停——只杀一半会剩僵尸）
+# 1) 停旧实例（按命令行匹配，连壳带真身一起停——只杀一半会剩僵尸）
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object {$_.CommandLine -like '*run_tray*'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 
-# 2) 分离式启动（命令瞬间返回，服务在后台常驻）
-powershell -NoProfile -Command "$env:HF_HUB_OFFLINE='1'; Start-Process -FilePath 'D:\Code\MemVault\.venv\Scripts\python.exe' -ArgumentList '-u','D:\Code\MemVault\run_tray.py' -WorkingDirectory 'D:\Code\MemVault' -WindowStyle Hidden -RedirectStandardOutput 'D:\Code\MemVault\data\tray.log' -RedirectStandardError 'D:\Code\MemVault\data\tray.err.log' -PassThru"
+# 2) 分离式启动（独立调用；不接任何管道；解除沙箱执行最佳）
+powershell -NoProfile -Command "$env:HF_HUB_OFFLINE='1'; Start-Process -FilePath 'D:\Code\MemVault\.venv\Scripts\python.exe' -ArgumentList '-u','D:\Code\MemVault\run_tray.py' -WorkingDirectory 'D:\Code\MemVault' -WindowStyle Hidden -RedirectStandardOutput 'D:\Code\MemVault\data\tray.log' -RedirectStandardError 'D:\Code\MemVault\data\tray.err.log' -PassThru | Select-Object -ExpandProperty Id"
 
-# 3) 验证就绪（“启动成功”的唯一判据）
+# 3) 下一次调用再验证就绪
 curl -s http://127.0.0.1:8765/api/health
 ```
+
+### 卡住后的解卡手册（已实践验证）
+
+1. 找挂起成员：扫创建时间较早、仍存活的 `bash/powershell/**tail**/python` 进程；
+2. **杀掉管道读取器**（`tail.exe` 之类）或前台进程——任务立刻进入终态
+   （日志出现 `background_task.tracking.terminal`），服务通常不受影响；
+3. 若卡住的树包含托盘本体，则杀托盘对并**立即按上面步骤重启**（服务中断约半分钟）；
+4. 核对是否全部闭环：对比日志中 `background_task.tracking.started` 与 `terminal` 的任务 id。
 
 ### 本机特有的坑（均已实测）
 

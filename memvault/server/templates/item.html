@@ -19,7 +19,7 @@
   {% endif %}
   <div style="margin:8px 0">
     {% if item.category_id %}
-      <span class="tag">分类 #{{ item.category_id }}</span>
+      <span class="tag">分类:{{ category_name or ('#' ~ item.category_id) }}</span>
       {% if item.category_conf is not none %}
         <span class="tag gray">置信度 {{ '%.2f'|format(item.category_conf) }}</span>
       {% endif %}
