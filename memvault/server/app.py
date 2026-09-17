@@ -461,15 +461,16 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     @app.post("/settings/test")
     def settings_test():
         client = app.state.llm
-        if not client.enabled:
+        if not getattr(client, "enabled", False):
             return RedirectResponse("/settings?test=" + _quote("未配置 API key"),
                                     status_code=303)
         try:
+            # 预算给足:推理型模型的思考 token 会占用 max_tokens
             client.chat_json("你是回声机,只输出 JSON。", '回复 {"ok": true}',
-                             max_tokens=50)
+                             max_tokens=800)
             msg = f"连接成功 ✓ 当前模型:{client.model}"
         except Exception as e:  # noqa: BLE001
-            msg = f"连接失败 ✗ {str(e)[:100]}"
+            msg = f"连接失败 ✗ {str(e)[:120]}"
         return RedirectResponse("/settings?test=" + _quote(msg), status_code=303)
 
     return app

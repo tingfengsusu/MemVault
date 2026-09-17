@@ -87,10 +87,26 @@ class LLMClient:
             timeout=90,
         )
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        choice = r.json()["choices"][0]
+        self._last_finish_reason = choice.get("finish_reason")
+        return choice["message"]["content"] or ""
 
     def chat_json(self, system: str, user: str, max_tokens: int = 2000) -> dict:
+        """JSON 解析。推理型模型(如 deepseek-v4-flash)的思考 token 会占用
+        max_tokens 预算,可能返回空内容——此时自动加大预算重试一次。"""
+        self._last_finish_reason = None
         text = self.chat(system, user, max_tokens=max_tokens, json_mode=True)
+        if not (text or "").strip() or self._last_finish_reason == "length":
+            retry_budget = min(max(max_tokens * 3, 800), 4000)
+            logger.warning(
+                "LLM 返回为空或截断(finish=%s, max_tokens=%d),以 %d 重试一次",
+                self._last_finish_reason, max_tokens, retry_budget)
+            text = self.chat(system, user, max_tokens=retry_budget,
+                             json_mode=True)
+        if not (text or "").strip():
+            raise RuntimeError(
+                f"LLM 返回空内容(finish={self._last_finish_reason});"
+                "可能是额度/限流问题或 max_tokens 过小,请稍后重试")
         try:
             return json.loads(text)
         except json.JSONDecodeError:
