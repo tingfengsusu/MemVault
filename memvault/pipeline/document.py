@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".log"}
 DOC_EXT = {".pdf", ".docx", ".doc", ".xlsx", ".xlsm", ".xls",
-           ".pptx", ".ppt"} | TEXT_EXT
+           ".pptx", ".ppt", ".epub"} | TEXT_EXT
 
 _MAX_CHUNK = 1200        # 单块字符上限
-_MAX_CHUNKS = 200        # 单文档块数上限
+_MAX_CHUNKS = 300        # 单文档块数上限(整本书约 36 万字)
 _MAX_PDF_PAGES = 80
 _MAX_PDF_IMAGES = 10
 _MIN_IMAGE_BYTES = 30_000  # 小于 30KB 的图视为图标/水印跳过
@@ -113,6 +113,63 @@ def _parse_pptx(path: Path) -> str:
     return "\n".join(parts)
 
 
+def _parse_epub(path: Path) -> str:
+    """EPUB(电子书):按 spine 顺序提取各章文本,零额外依赖(zipfile+标准库)。"""
+    import html as _html
+    import re as _re
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    ns = {"opf": "http://www.idpf.org/2007/opf",
+          "dc": "http://purl.org/dc/elements/1.1/",
+          "cnt": "urn:oasis:names:tc:opendocument:xmlns:container"}
+    parts: list[str] = []
+    with zipfile.ZipFile(path) as z:
+        # 1) 元数据与书名
+        try:
+            title = _re.search(
+                r"<dc:title[^>]*>(.*?)</dc:title>",
+                z.read(next(n for n in z.namelist()
+                            if n.endswith(".opf"))).decode("utf-8", "ignore"),
+                _re.S)
+            if title:
+                parts.append(f"[书名]{_html.unescape(title.group(1)).strip()}")
+        except Exception:  # noqa: BLE001
+            pass
+        # 2) container.xml → OPF 路径
+        try:
+            container = ET.fromstring(z.read("META-INF/container.xml"))
+            opf_path = container.find(".//cnt:rootfile", ns).get("full-path")
+        except Exception:  # noqa: BLE001 — 结构异常时退化为全文件扫描
+            opf_path = None
+        root = Path(opf_path).parent if opf_path else Path("")
+        # 3) spine 顺序 → 逐章提取
+        order: list[str] = []
+        if opf_path:
+            opf = ET.fromstring(z.read(opf_path))
+            id2href = {it.get("id"): it.get("href")
+                       for it in opf.findall(".//opf:manifest/opf:item", ns)}
+            for ref in opf.findall(".//opf:spine/opf:itemref", ns):
+                href = id2href.get(ref.get("idref"))
+                if href:
+                    order.append(str(root / href).replace("\\", "/"))
+        if not order:  # 退化:按名字排序取所有 xhtml/html
+            order = sorted(n for n in z.namelist()
+                           if n.lower().endswith((".xhtml", ".html", ".htm")))
+        for i, name in enumerate(order):
+            try:
+                raw = z.read(name).decode("utf-8", "ignore")
+            except KeyError:
+                continue
+            raw = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw,
+                          flags=_re.S | _re.I)
+            text = _html.unescape(_re.sub(r"<[^>]+>", "\n", raw))
+            text = _re.sub(r"\n{2,}", "\n", text).strip()
+            if len(text) > 20:
+                parts.append(f"[第{i + 1}节]\n{text}")
+    return "\n".join(parts)
+
+
 def parse_document(path, memory, cfg: dict, domain: str = "general") -> int:
     """解析文档并入库,返回 item_id。"""
     from memvault.config import media_dir
@@ -137,6 +194,8 @@ def parse_document(path, memory, cfg: dict, domain: str = "general") -> int:
         text, images = _parse_excel(path), []
     elif ext in (".pptx", ".ppt"):
         text, images = _parse_pptx(path), []
+    elif ext == ".epub":
+        text, images = _parse_epub(path), []
     else:  # 纯文本类
         text = path.read_text(encoding="utf-8", errors="ignore")
         images = []
