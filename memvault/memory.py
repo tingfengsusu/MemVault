@@ -16,16 +16,30 @@ RRF_K = 60  # RRF 常数,标准取值
 
 
 class Memory:
-    def __init__(self, db: Database, vs: VectorStore, embedder=None):
+    def __init__(self, db: Database, vs: VectorStore, embedder=None,
+                 image_embedder=None):
         self.db = db
         self.vs = vs
         self._embedder = embedder
+        self._image_embedder = image_embedder
+        self._image_checked = image_embedder is not None
 
     @property
     def embedder(self):
         if self._embedder is None:
             raise RuntimeError("Memory 未配置嵌入器(Memory(db, vs, embedder))")
         return self._embedder
+
+    @property
+    def image_embedder(self):
+        """Chinese-CLIP 图像嵌入器;未安装/权重缺失时为 None(自动跳过图像侧)。"""
+        if not self._image_checked:
+            self._image_checked = True
+            from memvault.embeddings import ImageEmbedder
+
+            ib = ImageEmbedder()
+            self._image_embedder = ib if ib.available() else None
+        return self._image_embedder
 
     # ── 写入 ──────────────────────────────────────────────────────────
     def add_item(self, domain, type_, title, **kw) -> int:
@@ -178,6 +192,45 @@ class Memory:
                 continue
             results.append({
                 "score": round(scores[cid], 6),
+                "chunk": chunk,
+                "item": item,
+            })
+            if len(results) >= top_k:
+                break
+        return results
+
+    # ── 图像检索(Chinese-CLIP;文字搜画面 / 以图搜图)──────────────────
+    def search_images(self, query: str, domain=None, top_k=6,
+                      image_embedder=None) -> list[dict]:
+        """用文字搜画面,返回 [{score, chunk, item}]。
+
+        图像块没有文本可比对,只能走向量:CLIP 把文字与画面编码到同一空间,
+        因此"冰淇淋"能检索到画面里有冰淇淋的帧。需要 cn_clip + 权重已就绪。
+        """
+        if not (query or "").strip():
+            return []
+        ib = image_embedder or self.image_embedder
+        if ib is None or not ib.available():
+            return []
+        try:
+            vec = ib.encode_text([query])[0]
+            hits = self.vs.query_image(
+                vec, where=self._build_where(domain, None, None), k=top_k * 2)
+        except Exception as e:  # noqa: BLE001 — 图像检索失败不影响文本检索
+            logger.warning("图像检索失败:%s", e)
+            return []
+        chunks = {c["id"]: c for c in self.db.get_chunks(
+            [h["chunk_id"] for h in hits])}
+        results = []
+        for h in hits:
+            chunk = chunks.get(h["chunk_id"])
+            if chunk is None:
+                continue
+            item = self.db.get_items([chunk["item_id"]]).get(chunk["item_id"])
+            if item is None or (domain and item["domain"] != domain):
+                continue
+            results.append({
+                "score": round(1.0 - float(h.get("distance", 1.0)), 4),
                 "chunk": chunk,
                 "item": item,
             })
