@@ -4,21 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}MemVault{% endblock %}</title>
+<link rel="stylesheet" href="/static/base.css">
 <link rel="stylesheet" href="/static/theme.css">
 </head>
 <body>
+{% set path = request.url.path %}
 <header>
-  <span class="brand">🧠 MemVault</span>
+  <a class="brand" href="/">🧠 MemVault</a>
   <nav>
-    <a href="/">库</a>
-    <a href="/inbox">待整理</a>
-    <a href="/categories">分类</a>
-    <a href="/sources">订阅</a>
-    <a href="/chat">聊天</a>
-    <a href="/jobs">任务</a>
-    <a href="/settings">设置</a>
+    <a href="/" class="{{ 'active' if path == '/' or path.startswith('/search') or path.startswith('/items') else '' }}">库</a>
+    <a href="/inbox" class="{{ 'active' if path.startswith('/inbox') else '' }}">待整理</a>
+    <a href="/categories" class="{{ 'active' if path.startswith('/categories') else '' }}">分类</a>
+    <a href="/sources" class="{{ 'active' if path.startswith('/sources') else '' }}">订阅</a>
+    <a href="/chat" class="{{ 'active' if path.startswith('/chat') else '' }}">聊天</a>
+    <a href="/jobs" class="{{ 'active' if path.startswith('/jobs') else '' }}">任务</a>
+    <a href="/settings" class="{{ 'active' if path.startswith('/settings') else '' }}">设置</a>
   </nav>
-  <form action="/search" style="margin-left:auto">
+  <form action="/search">
     <input type="search" name="q" placeholder="搜索记忆库…" value="{{ q or '' }}">
     <button>搜索</button>
   </form>

@@ -56,7 +56,6 @@ def resolve_api_key(cfg: dict) -> str | None:
 
 class LLMClient:
     """chat() 返回文本;chat_json() 解析 JSON(容错提取代码块/前后缀)。"""
-
     def __init__(self, cfg: dict):
         l = cfg.get("llm", {})
         self.base_url = l.get("base_url", "https://api.deepseek.com/v1").rstrip("/")
@@ -99,3 +98,31 @@ class LLMClient:
             if start >= 0 and end > start:
                 return json.loads(text[start:end + 1])
             raise
+
+
+# ── 后端工厂:api(付费稳定) / web(免 token 网页自动化)────────────────
+_web_client = None
+
+
+def get_llm_client(cfg: dict):
+    """按 cfg.llm.backend 返回客户端;web 后端进程内复用同一浏览器实例。"""
+    global _web_client
+    backend = (cfg.get("llm", {}) or {}).get("backend", "api")
+    if backend == "web":
+        if _web_client is None:
+            from memvault.llm_web import WebLLMClient
+
+            _web_client = WebLLMClient(cfg)
+        return _web_client
+    return LLMClient(cfg)
+
+
+def reset_llm_client():
+    """设置页切换后端后调用:关闭并重建缓存的 web 浏览器实例。"""
+    global _web_client
+    if _web_client is not None:
+        try:
+            _web_client.close()
+        except Exception:  # noqa: BLE001
+            pass
+        _web_client = None

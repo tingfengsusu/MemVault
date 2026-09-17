@@ -29,7 +29,7 @@
   {% if it.content_text %}<div class="snippet">{{ it.content_text[:120] }}{% if it.content_text|length > 120 %}…{% endif %}</div>{% endif %}
 </div>
 {% else %}
-<div class="card"><h3>库还是空的</h3>
+<div class="card empty"><h3>库还是空的</h3>
   <p class="muted">用浏览器插件采集网页/商品/视频,或按全局热键 <b>Ctrl+Alt+B</b> 采集剪贴板内容。</p>
 </div>
 {% endfor %}
