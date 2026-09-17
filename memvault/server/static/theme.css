@@ -1,7 +1,7 @@
 /* ============================================================
    MemVault 主题「flomo 暖纸」(分支 theme-flomo)
-   参考:flomo / 滴答清单浅色 — 米色纸感底、暖棕文字、
-   琥珀点缀、大圆角卡片,轻柔放松的记录氛围。
+   视觉结构在 base.css;本文件只提供配色变量与主题特色微调。
+   参考:flomo / 滴答清单浅色 — 米色纸感底、暖棕文字、琥珀点缀、大圆角。
    ============================================================ */
 :root {
   --bg: #faf6ef;             /* 米色纸感 */
@@ -12,81 +12,15 @@
   --text: #4a3f35;           /* 暖棕文字 */
   --muted: #9a8b7a;
   --accent: #d97706;         /* 琥珀 */
-  --accent-soft: #fdf1dd;    /* 琥珀浅底 */
+  --accent-soft: #fdf1dd;
   --accent-text: #b45309;
   --btn-ghost-bg: #fffdf8;
   --btn-ghost-border: #e0d5c0;
   --input-border: #e0d5c0;
+  --tag-gray-bg: #f3ede2;
   --radius: 12px;            /* 大圆角,便签感 */
 }
-
-* { box-sizing: border-box; }
-body {
-  font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
-  margin: 0; background: var(--bg); color: var(--text);
-}
-
-/* ── 顶栏:同色融入,无生硬分割 ── */
-header {
-  background: var(--header-bg); color: var(--text);
-  border-bottom: 1px solid var(--header-border);
-  padding: 12px 20px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
-  position: sticky; top: 0; z-index: 10;
-}
-header nav { display: flex; gap: 14px; }
-header a { color: var(--muted); text-decoration: none; font-size: 14px; padding: 2px 6px; border-radius: 6px; }
-header a:hover { color: var(--accent); background: var(--accent-soft); }
-.brand { font-weight: 700; font-size: 16px; color: var(--accent); }
-
-/* ── 布局与卡片:便签卡片 ── */
-main { max-width: 960px; margin: 20px auto; padding: 0 16px; }
-.card {
-  background: var(--card-bg); border: 1px solid var(--card-border);
-  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(74, 63, 53, .04);
-}
-.card h3 { margin: 0 0 6px; font-size: 15px; }
-.card h3 a { color: var(--text); text-decoration: none; }
-.card h3 a:hover { color: var(--accent); }
-.muted { color: var(--muted); font-size: 12px; }
-.snippet {
-  font-size: 13px; color: var(--text); margin-top: 4px;
-  white-space: pre-wrap; word-break: break-all; opacity: .92;
-}
-
-/* ── 标签 ── */
-.tag {
-  display: inline-block; background: var(--accent-soft); color: var(--accent-text);
-  border-radius: 6px; padding: 1px 7px; font-size: 11px; margin-right: 4px;
-}
-.tag.gray { background: #f3ede2; color: var(--muted); }
-.tag.warn { background: #fdeea8; color: #8a6d1a; }
-.tag.ok   { background: #e8f2e4; color: #4a7a3a; }
-.tag.bad  { background: #fbe4e0; color: #a34a3a; }
-
-/* ── 表格 ── */
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px dashed var(--header-border); vertical-align: top; }
-th { color: var(--muted); font-weight: 500; }
-
-/* ── 表单控件 ── */
-button {
-  background: var(--accent); color: #fff; border: 0; border-radius: 8px;
-  padding: 5px 13px; font-size: 13px; cursor: pointer;
-}
-button:hover { opacity: .88; }
-button.ghost { background: var(--btn-ghost-bg); color: var(--text); border: 1px solid var(--btn-ghost-border); }
-input[type=search], input[type=text], select, textarea {
-  padding: 6px 10px; border: 1px solid var(--input-border); border-radius: 8px;
-  background: var(--card-bg); color: var(--text); font-size: 13px;
-}
-input[type=search]:focus, input[type=text]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-
-/* ── 杂项 ── */
-.ts { font-family: Consolas, monospace; background: #f3ede2; border-radius: 4px; padding: 0 4px; font-size: 12px; }
-.jump { font-size: 12px; color: var(--accent); text-decoration: none; }
-.jump:hover { text-decoration: underline; }
-img.thumb { max-width: 180px; border-radius: 8px; border: 1px solid var(--card-border); display: block; margin-top: 6px; }
-.chips { display: flex; gap: 10px; margin-bottom: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
-.chips b { color: var(--text); }
-form.inline { display: inline; }
+/* 主题特色微调 */
+.card { box-shadow: 0 1px 2px rgba(74, 63, 53, .04); }
+header nav a.active { background: var(--accent-soft); color: var(--accent-text); }
+.chunk { border-left-style: dashed; }
