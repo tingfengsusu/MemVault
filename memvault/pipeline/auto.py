@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 def auto_process(payload: dict, memory, cfg: dict, llm=None,
                  pstore=None) -> dict:
     from memvault.classify import extract_item, route_item
-    from memvault.llm import LLMClient
+    from memvault.llm import get_llm_client
     from memvault.prompts import PromptStore
 
-    llm = llm or LLMClient(cfg)
+    llm = llm or get_llm_client(cfg)
     pstore = pstore or PromptStore(memory.db)
     item_id = payload["item_id"]
 
