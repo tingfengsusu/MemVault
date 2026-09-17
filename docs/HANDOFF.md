@@ -7,7 +7,8 @@
 
 v0.1 核心完成:多模态采集(视频/网页/商品/文档)→ 本地记忆库(SQLite+Chroma)
 → 混合检索与双链 → LLM 自动分类与提示词进化 → 聊天/订阅/京东加购技能。
-测试 75/75,三分支(main / theme-notion / theme-flomo)已推送 GitHub。
+测试 77/77,三分支(main / theme-notion / theme-flomo)已推送 GitHub。
+当前库:155 条目 / 1600 语义块 / 201 对双链 / 279 条日志(含模拟数据)。
 
 ## 常用操作速查
 
@@ -34,8 +35,13 @@ HF_HUB_OFFLINE=1 .venv\Scripts\python -m memvault tray      # 或 run_tray.py
 - 服务重启较慢属正常(加载 bge 模型);不要重复启动,单实例有 health 检查保护
 - B站订阅依赖 `config/cookies.txt`(登录态,已 gitignore)；`bili_ticket` 已自动续签,
   主通道被 -352 风控时自动降级 series 通道
-- LLM:API 模式(DeepSeek key 在 `.env`,视频 key 页可在线改)或网页模式(免 token,
-  Playwright 驱动 chat.deepseek.com,首次需登录一次)
+- LLM 通道(设置页在线切换,改完即生效):
+  - **api 模式(当前使用中)**:Command Code 兼容端点(`https://api.commandcode.ai/provider/v1`
+    + `deepseek/deepseek-v4-flash`),走 CC 订阅额度。**注意模型是推理型**:
+    思考 token 占用预算,客户端已内置"空内容自动加大预算重试";
+    测试连接的预算已调至 800。切回官方:`https://api.deepseek.com/v1`。
+  - **web 模式(免 token)**:Playwright 驱动 chat.deepseek.com,首次需登录一次
+    (登录态存 `config/deepseek_web_auth.json`)。
 - 京东加购:`JdHandler` 接管 Chrome(需要系统 Chrome + 京东登录态)
 - ffmpeg 在 `tools/ffmpeg.exe`(DASH 合并需要)
 
@@ -52,6 +58,7 @@ HF_HUB_OFFLINE=1 .venv\Scripts\python -m memvault tray      # 或 run_tray.py
 - 扫描版 PDF 的 OCR 兜底(EasyOCR 已装,可接)
 - 检索重排序(bge-reranker)、有界 ReAct 调研技能
 - 聊天流式输出(提升等待体感)
+- 双链的图谱可视化(目前只有列表式相关条目)
 
 ## 关键文件地图
 
