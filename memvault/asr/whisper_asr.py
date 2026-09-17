@@ -11,15 +11,20 @@ logger = logging.getLogger(__name__)
 
 
 def transcribe(video_path, model_size="small", device="cpu",
-               compute_type="int8") -> list[dict]:
-    """转写音轨,返回 [{"start": 秒, "end": 秒, "text": 文本}]。"""
+               compute_type="int8", initial_prompt: str | None = None) -> list[dict]:
+    """转写音轨,返回 [{"start": 秒, "end": 秒, "text": 文本}]。
+
+    initial_prompt:领域提示词,把专有名词/术语提前告诉模型,
+    显著降低"ZCode→gcode"这类同音误识别。
+    """
     from faster_whisper import WhisperModel
 
     logger.info("加载 faster-whisper 模型 %s(%s/%s)...",
                 model_size, device, compute_type)
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
     segments, info = model.transcribe(
-        str(video_path), vad_filter=True, language=None
+        str(video_path), vad_filter=True, language=None,
+        initial_prompt=initial_prompt or None,
     )
     out = []
     for s in segments:

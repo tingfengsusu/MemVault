@@ -88,6 +88,7 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
             video_path, model_size=acfg.get("model", "small"),
             device=acfg.get("device", "cpu"),
             compute_type=acfg.get("compute_type", "int8"),
+            initial_prompt=acfg.get("initial_prompt"),
         )
     except Exception as e:  # noqa: BLE001 — ASR 失败不丢整条条目
         logger.warning("ASR 失败,仅保留画面信息: %s", e)
