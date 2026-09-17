@@ -320,9 +320,9 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         return RedirectResponse(f"/items/{item_id}", status_code=303)
 
     # ── 聊天(M3b:对话式画像/日志录入 + 问答)──────────────────────
-    from memvault.llm import LLMClient
+    from memvault.llm import get_llm_client
 
-    app.state.llm = LLMClient(cfg)
+    app.state.llm = get_llm_client(cfg)
 
     @app.get("/chat")
     def chat_page(request: Request):
@@ -383,7 +383,9 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     @app.get("/settings")
     def settings_page(request: Request, saved: int = 0, test: str = ""):
         l = cfg.get("llm", {})
-        key = app.state.llm.api_key or ""
+        backend = l.get("backend", "api")
+        key = app.state.llm.api_key if hasattr(app.state.llm, "api_key") else ""
+        key = key or ""
         if len(key) > 12:
             masked = key[:6] + "…" + key[-4:]
         elif key:
@@ -391,27 +393,30 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         else:
             masked = "未配置"
         return templates.TemplateResponse(request, "settings.html",
-            ctx(request, llm=l, key_masked=masked, saved=bool(saved),
-                test_result=test, asr=cfg.get("asr", {}),
+            ctx(request, llm=l, backend=backend, key_masked=masked,
+                saved=bool(saved), test_result=test, asr=cfg.get("asr", {}),
                 emb=cfg.get("embedding", {})))
 
     @app.post("/settings/save")
-    def settings_save(base_url: str = Form(...), model: str = Form(...),
+    def settings_save(backend: str = Form("api"),
+                      base_url: str = Form(...), model: str = Form(...),
                       api_key: str = Form(""),
                       classify_confidence: float = Form(0.8)):
-        """写回 config.yaml(base_url/model/阈值)与 .env(密钥),即时生效。"""
+        """写回 config.yaml(后端/base_url/model/阈值)与 .env(密钥),即时生效。"""
         import yaml as _yaml
         p = Path(cfg.get("_config_path") or DEFAULT_CONFIG_PATH)
         raw = {}
         if p.exists():
             raw = _yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         sec = raw.setdefault("llm", {})
+        sec["backend"] = backend if backend in ("api", "web") else "api"
         sec["base_url"] = base_url.strip()
         sec["model"] = model.strip()
         sec["classify_confidence"] = classify_confidence
         p.write_text(_yaml.safe_dump(raw, allow_unicode=True, sort_keys=False),
                      encoding="utf-8")
 
+        cfg["llm"]["backend"] = sec["backend"]
         cfg["llm"]["base_url"] = base_url.strip()
         cfg["llm"]["model"] = model.strip()
         cfg["llm"]["classify_confidence"] = classify_confidence
@@ -423,8 +428,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             env.write_text("\n".join(lines) + "\n", encoding="utf-8")
             cfg["llm"]["api_key"] = api_key.strip()
 
-        app.state.llm = llm_mod.LLMClient(cfg)  # 即时重建客户端
-        logger.info("API 设置已保存并生效: model=%s", cfg["llm"]["model"])
+        llm_mod.reset_llm_client()  # 切换后端时关闭旧的浏览器实例
+        app.state.llm = llm_mod.get_llm_client(cfg)
+        logger.info("LLM 设置已保存: backend=%s model=%s",
+                    sec["backend"], cfg["llm"]["model"])
         return RedirectResponse("/settings?saved=1", status_code=303)
 
     @app.post("/settings/test")

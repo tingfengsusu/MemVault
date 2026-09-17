@@ -25,11 +25,17 @@ DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 8765},
     "hotkey": {"enabled": True, "keys": "ctrl+alt+b"},
     "llm": {
+        "backend": "api",         # api=付费稳定;web=浏览器自动化 chat.deepseek.com 免 token
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-chat",
         "api_key": None,          # 也可用环境变量 DEEPSEEK_API_KEY
         "temperature": 0.1,
         "classify_confidence": 0.8,
+        "web": {
+            "cookies_file": None,   # 默认 <项目>/config/deepseek_web_auth.json
+            "headless": False,
+            "timeout_seconds": 180,
+        },
     },
     "watch": {"interval_minutes": 30, "max_per_check": 10},
 }

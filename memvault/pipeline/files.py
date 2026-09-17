@@ -27,7 +27,13 @@ def ingest_file(payload: dict, memory, cfg: dict) -> int:
     if ext in IMAGE_EXT:
         return _ingest_image(src, memory, cfg, payload)
 
-    # 其他文档:占位条目进待整理箱,正文解析 M3 接入
+    from memvault.pipeline.document import DOC_EXT, parse_document
+
+    if ext in DOC_EXT:
+        return parse_document(src, memory, cfg,
+                              domain=payload.get("domain", "general"))
+
+    # 其他未知类型:占位条目进待整理箱
     item_id = memory.add_item(
         domain=payload.get("domain", "general"),
         type_="file",
@@ -35,7 +41,7 @@ def ingest_file(payload: dict, memory, cfg: dict) -> int:
         source_type="file",
         source_ref=str(src.resolve()),
     )
-    memory.db.update_item_media(item_id, content_text="(M3 文档解析待接入)")
+    memory.db.update_item_media(item_id, content_text=f"(不支持的格式 {ext})")
     logger.info("文件占位入库 item=%s (%s)", item_id, src.name)
     return item_id
 

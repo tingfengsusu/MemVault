@@ -10,11 +10,24 @@
 {% endif %}
 
 <div class="card">
-  <form method="post" action="/settings/save" style="display:grid;gap:10px;max-width:560px">
+  <form method="post" action="/settings/save" style="display:grid;gap:10px;max-width:620px">
+    <div>
+      <b>LLM 通道</b>
+      <label style="display:block;margin-top:6px">
+        <input type="radio" name="backend" value="api" {{ 'checked' if backend != 'web' else '' }}>
+        API 模式(推荐):稳定快速,按量付费
+      </label>
+      <label style="display:block">
+        <input type="radio" name="backend" value="web" {{ 'checked' if backend == 'web' else '' }}>
+        网页模式(免 token):浏览器自动化 chat.deepseek.com,慢、依赖网页稳定
+        {% if backend == 'web' %}<span class="tag ok">当前使用中</span>{% endif %}
+      </label>
+      <span class="muted">首次用网页模式会在弹出的 Chrome 里要求登录一次 DeepSeek,登录态自动保存;请勿关闭该浏览器窗口。</span>
+    </div>
     <label>接口地址(base_url)
       <input name="base_url" value="{{ llm.base_url or '' }}" required
              style="width:100%;padding:6px 10px;margin-top:4px">
-      <span class="muted">DeepSeek 官方:https://api.deepseek.com/v1;兼容 OpenAI 格式的其他服务填各自地址</span>
+      <span class="muted">API 模式生效;兼容 OpenAI 格式的服务填各自地址</span>
     </label>
     <label>模型名(model)
       <input name="model" value="{{ llm.model or '' }}" required

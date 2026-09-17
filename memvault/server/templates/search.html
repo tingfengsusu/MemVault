@@ -8,7 +8,7 @@
   <div>
     <span class="tag">{{ r.item.domain }}</span>
     <span class="tag gray">{{ r.item.type }}</span>
-    <span class="tag gray">score {{ '%.4f'|format(r.score) }}</span>
+    <span class="tag gray">第 {{ loop.index }} 条命中</span>
     {% if r.chunk.start_ts is not none %}
       <span class="ts">{{ r.chunk.start_ts|ts }}</span>
       {% if r.chunk.jump %}<a class="jump" href="{{ r.chunk.jump }}" target="_blank">▶ 跳到视频此处</a>{% endif %}
