@@ -33,3 +33,40 @@ def test_web_client_lazy_no_browser_on_init():
     c = WebLLMClient({"llm": {"web": {}}})
     assert c.page is None and c.browser is None
     assert str(c.cookies_file).endswith("deepseek_web_auth.json")
+
+
+def test_chat_json_retries_on_empty_content(monkeypatch):
+    """推理型模型思考吃光 token 返回空内容 → 自动加大预算重试一次。"""
+    from memvault.llm import LLMClient
+
+    client = LLMClient({"llm": {"api_key": "sk-test"}})
+    calls = []
+
+    def fake_chat(system, user, max_tokens=2000, json_mode=False):
+        calls.append(max_tokens)
+        if len(calls) == 1:
+            client._last_finish_reason = "length"
+            return ""
+        client._last_finish_reason = "stop"
+        return '{"ok": true}'
+
+    monkeypatch.setattr(client, "chat", fake_chat)
+    result = client.chat_json("s", "u", max_tokens=50)
+    assert result == {"ok": True}
+    assert calls == [50, 800]  # 重试预算 = max(50*3, 800)
+
+
+def test_chat_json_clear_error_when_still_empty(monkeypatch):
+    import pytest
+
+    from memvault.llm import LLMClient
+
+    client = LLMClient({"llm": {"api_key": "sk-test"}})
+
+    def always_empty(system, user, max_tokens=2000, json_mode=False):
+        client._last_finish_reason = "length"
+        return ""
+
+    monkeypatch.setattr(client, "chat", always_empty)
+    with pytest.raises(RuntimeError, match="返回空内容"):
+        client.chat_json("s", "u", max_tokens=50)

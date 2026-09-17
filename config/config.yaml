@@ -1,11 +1,8 @@
-# MemVault 配置(M1)
 embedding:
   text_model: BAAI/bge-small-zh-v1.5
-  fake: false          # true = 确定性假嵌入,离线/测试用
+  fake: false
 asr:
-  # 领域提示词:告诉识别器常见术语,降低同音误识别(如 ZCode→gcode)
-  # 修改后仅对之后新采集的视频生效
-  model: small         # tiny / base / small / medium
+  model: small
   device: cpu
   compute_type: int8
 frames:
@@ -13,7 +10,12 @@ frames:
   frame_interval: 5.0
   scene_threshold: 0.45
 bili:
-  quality: 64          # 64=720P, 80=1080P
+  quality: 64
   cookies_path: D:\Code\MemVault\config\cookies.txt
-keep_video: false      # 入库后是否保留视频原文件(帧图始终保留)
-data_dir: null         # null = <项目>/data;可用环境变量 MEMVAULT_DATA_DIR 覆盖
+keep_video: false
+data_dir: null
+llm:
+  backend: api
+  base_url: https://api.commandcode.ai/provider/v1
+  model: deepseek/deepseek-v4-flash
+  classify_confidence: 0.8
