@@ -27,12 +27,26 @@
   <div>
     <span class="tag">{{ it.domain }}</span>
     <span class="tag gray">{{ it.type }}</span>
-    {% if it.auto_note %}<span class="muted">AI:{{ it.auto_note[:60] }}</span>{% endif %}
+    {% if it.category_id and cat_names.get(it.category_id) %}
+      <span class="tag warn">AI 建议:{{ cat_names[it.category_id] }}({{ '%.2f'|format(it.category_conf or 0) }})</span>
+    {% endif %}
+    {% if it.auto_note %}<span class="muted">AI:{{ it.auto_note[:70] }}</span>{% endif %}
   </div>
   {% if it.content_text %}<div class="snippet">{{ it.content_text[:100] }}…</div>{% endif %}
-  <div style="margin-top:8px">
+  <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    {% set dom_cats = cats_by_domain.get(it.domain, []) %}
+    {% if dom_cats %}
+    <form class="inline" method="post" action="/items/{{ it.id }}/classify">
+      <select name="category_id">
+        {% for c in dom_cats %}
+        <option value="{{ c.id }}" {{ 'selected' if c.id == it.category_id else '' }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <button>归入所选分类</button>
+    </form>
+    {% endif %}
     <form class="inline" method="post" action="/items/{{ it.id }}/status?status=filed">
-      <button>✔ 已归类</button>
+      <button class="ghost">✔ 已归类(不指定)</button>
     </form>
     <form class="inline" method="post" action="/items/{{ it.id }}/status?status=archived">
       <button class="ghost">归档</button>

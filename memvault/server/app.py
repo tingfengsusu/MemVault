@@ -14,7 +14,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from memvault import __version__
-from memvault.config import chroma_dir, db_path, load_config, media_dir
+from memvault.config import (DEFAULT_CONFIG_PATH, chroma_dir, db_path,
+                             load_config, media_dir)
 from memvault.db import Database
 from memvault.embeddings import get_text_embedder
 from memvault.memory import Memory, fmt_ts
@@ -183,11 +184,31 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/inbox")
     def inbox(request: Request, domain: str = ""):
+        from collections import defaultdict as _dd
+
         items = memory.db.list_items(status="inbox", domain=domain or None,
                                      limit=200)
+        all_cats = memory.db.categories()
+        cats_by_domain = _dd(list)
+        for c in all_cats:
+            if c.get("status") != "archived":
+                cats_by_domain[c["domain"]].append(c)
+        cat_names = {c["id"]: c["name"] for c in all_cats}
         return templates.TemplateResponse(request, "inbox.html",
             ctx(request, items=items, domain=domain,
-                domain_counts=memory.db.items_by_domain(status="inbox")))
+                domain_counts=memory.db.items_by_domain(status="inbox"),
+                cats_by_domain=dict(cats_by_domain), cat_names=cat_names))
+
+    @app.post("/items/{item_id}/classify")
+    def item_classify(item_id: int, category_id: int = Form(...)):
+        """手动把条目归入指定分类。"""
+        cat = memory.db.get_category(category_id)
+        if not cat or not memory.get_item(item_id):
+            raise HTTPException(404, "分类或条目不存在")
+        memory.db.set_item_category(item_id, category_id, None,
+                                    f"手动归入:{cat['name']}")
+        memory.db.set_item_status(item_id, "filed")
+        return RedirectResponse("/inbox", status_code=303)
 
     @app.post("/inbox/batch")
     def inbox_batch(action: str = Form(...), domain: str = Form("")):
@@ -217,6 +238,8 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
         item = memory.get_item(item_id)
         if not item:
             raise HTTPException(404)
+        cat = memory.db.get_category(item["category_id"]) \
+            if item.get("category_id") else None
         md = media_dir(cfg)
         for c in item["chunks"]:
             c["jump"] = bili_jump(item["source_ref"], c.get("start_ts"))
@@ -228,7 +251,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
                 except ValueError:
                     c["media_url"] = None
         return templates.TemplateResponse(request, "item.html",
-            ctx(request, item=item))
+            ctx(request, item=item, category_name=cat["name"] if cat else None))
 
     @app.get("/jobs")
     def jobs(request: Request):
@@ -352,5 +375,70 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             raise HTTPException(404)
         memory.db.enqueue("watch_check", {"source_id": source_id})
         return RedirectResponse("/sources", status_code=303)
+
+    # ── 设置:API 配置(在线切换,免手改文件)────────────────────────
+    from memvault import llm as llm_mod
+    from urllib.parse import quote as _quote
+
+    @app.get("/settings")
+    def settings_page(request: Request, saved: int = 0, test: str = ""):
+        l = cfg.get("llm", {})
+        key = app.state.llm.api_key or ""
+        if len(key) > 12:
+            masked = key[:6] + "…" + key[-4:]
+        elif key:
+            masked = "已配置"
+        else:
+            masked = "未配置"
+        return templates.TemplateResponse(request, "settings.html",
+            ctx(request, llm=l, key_masked=masked, saved=bool(saved),
+                test_result=test, asr=cfg.get("asr", {}),
+                emb=cfg.get("embedding", {})))
+
+    @app.post("/settings/save")
+    def settings_save(base_url: str = Form(...), model: str = Form(...),
+                      api_key: str = Form(""),
+                      classify_confidence: float = Form(0.8)):
+        """写回 config.yaml(base_url/model/阈值)与 .env(密钥),即时生效。"""
+        import yaml as _yaml
+        p = Path(cfg.get("_config_path") or DEFAULT_CONFIG_PATH)
+        raw = {}
+        if p.exists():
+            raw = _yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        sec = raw.setdefault("llm", {})
+        sec["base_url"] = base_url.strip()
+        sec["model"] = model.strip()
+        sec["classify_confidence"] = classify_confidence
+        p.write_text(_yaml.safe_dump(raw, allow_unicode=True, sort_keys=False),
+                     encoding="utf-8")
+
+        cfg["llm"]["base_url"] = base_url.strip()
+        cfg["llm"]["model"] = model.strip()
+        cfg["llm"]["classify_confidence"] = classify_confidence
+        if api_key.strip():
+            env = llm_mod.PROJECT_ROOT / ".env"
+            lines = env.read_text(encoding="utf-8").splitlines() if env.exists() else []
+            lines = [x for x in lines if not x.startswith("DEEPSEEK_API_KEY=")]
+            lines.append(f"DEEPSEEK_API_KEY={api_key.strip()}")
+            env.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            cfg["llm"]["api_key"] = api_key.strip()
+
+        app.state.llm = llm_mod.LLMClient(cfg)  # 即时重建客户端
+        logger.info("API 设置已保存并生效: model=%s", cfg["llm"]["model"])
+        return RedirectResponse("/settings?saved=1", status_code=303)
+
+    @app.post("/settings/test")
+    def settings_test():
+        client = app.state.llm
+        if not client.enabled:
+            return RedirectResponse("/settings?test=" + _quote("未配置 API key"),
+                                    status_code=303)
+        try:
+            client.chat_json("你是回声机,只输出 JSON。", '回复 {"ok": true}',
+                             max_tokens=50)
+            msg = f"连接成功 ✓ 当前模型:{client.model}"
+        except Exception as e:  # noqa: BLE001
+            msg = f"连接失败 ✗ {str(e)[:100]}"
+        return RedirectResponse("/settings?test=" + _quote(msg), status_code=303)
 
     return app

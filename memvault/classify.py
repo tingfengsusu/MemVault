@@ -85,12 +85,29 @@ def route_item(memory, llm, pstore, item_id: int, cfg: dict) -> dict:
     # 提议新分类是"待用户确认"的动作,阈值可比直接归档低,命中率优先
     propose_threshold = min(threshold, 0.5)
     if new_cat and conf >= propose_threshold:
-        cid = memory.db.add_category(item["domain"], str(new_cat)[:40],
-                                     status="proposed")
-        memory.db.set_item_category(item_id, cid, conf,
-                                    f"提议新分类:{new_cat}。{reason}")
-        # 提议中的分类不转 filed,等用户确认;条目留在待整理箱
-        logger.info("item=%s 提议新分类 '%s'(待确认)", item_id, new_cat)
+        name = str(new_cat).strip().strip("「」\"'")[:40]
+        # 提议查重:同名分类已存在则复用,不再重复创建
+        existing = next((c for c in cats
+                         if c["name"] == name and c.get("status") != "archived"),
+                        None)
+        if existing is not None:
+            cid = existing["id"]
+            if existing.get("status") == "active" and conf >= threshold:
+                memory.db.set_item_category(item_id, cid, conf, reason)
+                memory.db.set_item_status(item_id, "filed")
+                logger.info("item=%s 命中已有分类「%s」(active) → filed",
+                            item_id, name)
+                return {"action": "filed", "category_id": cid,
+                        "confidence": conf, "reason": reason}
+            memory.db.set_item_category(
+                item_id, cid, conf, f"命中已有分类「{name}」。{reason}")
+            logger.info("item=%s 复用已有分类「%s」", item_id, name)
+            return {"action": "proposed", "category_id": cid,
+                    "confidence": conf, "reason": reason}
+
+        cid = memory.db.add_category(item["domain"], name, status="proposed")
+        memory.db.set_item_category(item_id, cid, conf, f"提议新分类:{name}。{reason}")
+        logger.info("item=%s 提议新分类「%s」(待确认)", item_id, name)
         return {"action": "proposed", "category_id": cid,
                 "confidence": conf, "reason": reason}
 
