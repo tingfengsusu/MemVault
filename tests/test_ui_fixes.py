@@ -29,6 +29,7 @@ def client_env(tmp_path, monkeypatch):
 
 
 def test_inbox_shows_suggestion_and_manual_classify(client_env):
+    """待整理箱迁到 Vue 后:分类建议与手动归入由 /api/inbox + /api/items/* 提供。"""
     client, app, *_ = client_env
     mem = app.state.memory
     cat_id = mem.db.add_category("general", "技术笔记")
@@ -37,15 +38,28 @@ def test_inbox_shows_suggestion_and_manual_classify(client_env):
                            attrs=None)
     mem.db.set_item_category(item_id, cat_id, 0.85, "测试建议")
 
+    # 页面外壳 + 接口数据(Vue 渲染的正是这两处)
     page = client.get("/inbox")
-    assert "AI 建议:技术笔记" in page.text  # 显示分类名而非 id
+    assert page.status_code == 200 and 'id="inbox-app"' in page.text
+    data = client.get("/api/inbox").json()["data"]
+    row = next(it for it in data["items"] if it["id"] == item_id)
+    assert row["category_name"] == "技术笔记"      # 显示分类名而非 id
+    assert "技术笔记" in [c["name"] for c in data["categories"]["general"]]
 
     item2 = mem.add_item("general", "note", "待归类条目", content_text="x")
+    # 旧表单端点(双轨保留)
     r = client.post(f"/items/{item2}/classify", data={"category_id": cat_id},
                     follow_redirects=False)
     assert r.status_code == 303
     it = mem.get_item(item2)
     assert it["status"] == "filed" and it["category_id"] == cat_id
+
+    # 新的 JSON 端点(Vue 使用的那个)
+    item3 = mem.add_item("general", "note", "再来一条", content_text="y")
+    r3 = client.post(f"/api/items/{item3}/classify", json={"category_id": cat_id})
+    assert r3.json()["ok"] is True
+    it3 = mem.get_item(item3)
+    assert it3["status"] == "filed" and it3["category_id"] == cat_id
 
     html = client.get(f"/items/{item2}").text
     assert "分类:技术笔记" in html

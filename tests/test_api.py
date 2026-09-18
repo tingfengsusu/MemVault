@@ -41,9 +41,13 @@ def test_capture_selection_end_to_end(env):
     assert items[0]["type"] == "note"
     assert items[0]["status"] == "inbox"
 
+    # 检索页已迁移到 Vue:断言外壳 + 接口数据(方案 A)
     page = client.get("/search", params={"q": "平板卧推"})
     assert page.status_code == 200
-    assert "训练计划贴" in page.text
+    assert 'id="search-app"' in page.text and "/static/dist/search.js" in page.text
+    hits = client.get("/api/items", params={"q": "平板卧推"}).json()["data"]
+    assert any(h["title"] == "训练计划贴" for h in hits["items"])
+    assert hits["items"][0]["hit_chunk"]["content"]
 
     row = app.state.memory.db._conn().execute(
         "SELECT status FROM jobs WHERE id=?", (job_id,)
@@ -75,8 +79,8 @@ def test_capture_product(env):
     assert items[0]["title"] == "优衣库摇粒绒外套"
     assert "199元" in items[0]["attrs_json"]
 
-    page = client.get("/search", params={"q": "优衣库摇粒绒"})
-    assert "优衣库摇粒绒外套" in page.text
+    hits = client.get("/api/items", params={"q": "优衣库摇粒绒"}).json()["data"]
+    assert any(h["title"] == "优衣库摇粒绒外套" for h in hits["items"])
 
 
 def test_capture_video_enqueues_only(env):
@@ -128,8 +132,12 @@ def test_panel_pages(env):
 
     assert client.get("/").status_code == 200
     assert "示例页面" in client.get("/").text
+    # 待整理箱已迁移到 Vue(方案 A):页面渲染外壳,数据改由 /api/inbox 提供
     inbox = client.get("/inbox")
-    assert inbox.status_code == 200 and "示例页面" in inbox.text
+    assert inbox.status_code == 200
+    assert 'id="inbox-app"' in inbox.text and "/static/dist/inbox.js" in inbox.text
+    api_inbox = client.get("/api/inbox").json()["data"]
+    assert any(it["title"] == "示例页面" for it in api_inbox["items"])
     assert client.get("/jobs").status_code == 200
 
     item_id = app.state.memory.db.list_items()[0]["id"]
