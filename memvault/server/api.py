@@ -149,10 +149,18 @@ class Serializer:
                 "timestamp_label": (fmt_ts(c["start_ts"])
                                     if c.get("start_ts") is not None else None),
                 "media_url": _media_url(self.cfg, c.get("media_path")),
+                "jump": self._jump(it.get("source_ref"), c.get("start_ts")),
                 "source_ref": it.get("source_ref"),
             })
         out["chunks"] = chunks
         return out
+
+    @staticmethod
+    def _jump(source_ref, start_ts):
+        """B站来源 → 定位到时间戳的链接(与页面路由同一实现)。"""
+        from memvault.server.app import bili_jump
+
+        return bili_jump(source_ref, start_ts)
 
     def image_hit(self, h: dict) -> dict:
         c, it = h["chunk"], h["item"]
@@ -206,9 +214,12 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.get("/items")
     def list_items(q: str = "", domain: str = "", status: str = "",
-                   category_id: Optional[int] = None,
+                   category_id: Optional[int] = None, with_related: int = 0,
                    page: int = 1, page_size: int = DEFAULT_PAGE_SIZE):
-        """检索条目:q 走混合检索(向量+关键词),否则按 domain/status 过滤分页。"""
+        """检索条目:q 走混合检索(向量+关键词),否则按 domain/status 过滤分页。
+
+        with_related=1 时给每条带上"相关条目"(库首页卡片用),一次批量查询。
+        """
         page, page_size = _page_args(page, page_size)
         if q.strip():
             # 混合检索没有 SQL 分页语义 → 取前 page*page_size 条再切片,
@@ -239,6 +250,10 @@ def build_router(memory, cfg: dict) -> APIRouter:
         items = [ser.item_brief(it) for it in rows]
         if category_id:   # list_items 没有分类过滤,这里补一层
             items = [it for it in items if it["category_id"] == category_id]
+        if with_related and items:
+            rel = memory.db.links_for_items([it["id"] for it in items])
+            for it in items:
+                it["related"] = rel.get(it["id"], [])
         return page_payload(items, total, page, page_size)
 
     @api.get("/items/{item_id}")
@@ -278,6 +293,43 @@ def build_router(memory, cfg: dict) -> APIRouter:
                                     f"手动归入:{cat['name']}")
         memory.db.set_item_status(item_id, "filed")
         return ok(ser.item_brief(memory.get_item(item_id)))
+
+    @api.post("/items/{item_id}/cart")
+    def item_cart(item_id: int):
+        """把条目加入京东购物车(用户显式点击,worker 异步执行)。"""
+        it = memory.get_item(item_id)
+        if not it:
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        memory.db.enqueue("jd_cart", {"keyword": it["title"], "item_id": item_id})
+        return ok({"item_id": item_id, "queued": "jd_cart"})
+
+    @api.post("/items/{item_id}/bind-up")
+    def bind_up(item_id: int, category_id: int = Body(...),
+                up_mid: str = Body(""), up_name: str = Body("")):
+        """把这个 UP 的视频都归到该分类(可含本条:直接归档)。"""
+        it = memory.get_item(item_id)
+        if not it:
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        raw = _json_or(it.get("attrs_json"), {})
+        mid = str(up_mid or raw.get("up_mid") or "")
+        if not mid:
+            fail("no_up", "该条目没有 UP主 信息", 422)
+        cat = memory.db.get_category(int(category_id))
+        if not cat:
+            fail("not_found", "分类不存在", 404)
+        name = up_name or raw.get("up")
+        memory.db.bind_up_category(mid, name, cat["id"])
+        memory.db.set_item_category(item_id, cat["id"], 1.0,
+                                    f"UP主规则:{name or mid} 的视频归入本分类")
+        memory.db.set_item_status(item_id, "filed")
+        return ok({"up_mid": mid, "category_id": cat["id"],
+                   "category_name": cat["name"],
+                   "item": ser.item_brief(memory.get_item(item_id))})
+
+    @api.post("/up/{up_mid}/unbind")
+    def unbind_up(up_mid: str):
+        n = memory.db.unbind_up_category(up_mid)
+        return ok({"up_mid": up_mid, "removed": n})
 
     @api.get("/inbox")
     def inbox(domain: str = "", page: int = 1,
@@ -422,8 +474,39 @@ def build_router(memory, cfg: dict) -> APIRouter:
         groups: dict = {}
         for c in cats:
             groups.setdefault(c["domain"], []).append(c)
-        return ok({"items": cats, "groups": groups,
+        # 领域候选:已有分类的领域 ∪ 条目用到的领域(前端输入框下拉建议用)
+        domains = sorted(set(groups) |
+                         {d["domain"] for d in memory.db.items_by_domain()})
+        return ok({"items": cats, "groups": groups, "domains": domains,
                    "up_rules": memory.db.up_rules()})
+
+    @api.post("/categories")
+    def add_category(domain: str = Body(...), name: str = Body(...)):
+        """新增分类(领域可手填,也可用 /api/categories 里的 domains 建议)。"""
+        name = (name or "").strip()[:40]
+        if not name:
+            fail("invalid_name", "分类名不能为空", 422)
+        cid = memory.db.add_category((domain or "general").strip(),
+                                     name, status="active")
+        return ok(ser.category(memory.db.get_category(cid)))
+
+    @api.post("/categories/{category_id}/confirm")
+    def confirm_category(category_id: int):
+        if not memory.db.get_category(category_id):
+            fail("not_found", f"分类不存在: {category_id}", 404)
+        memory.db.confirm_category(category_id)
+        return ok(ser.category(memory.db.get_category(category_id)))
+
+    @api.post("/categories/{category_id}/delete")
+    def delete_category(category_id: int):
+        """删除分类:条目退回待整理箱,专属提示词与 UP 规则一并清理。"""
+        info = memory.db.delete_category(category_id)
+        if info is None:
+            fail("not_found", f"分类不存在: {category_id}", 404)
+        logger.info("删除分类 %s/%s:条目退回 %d 条,清理提示词 %d 条、UP规则 %d 条",
+                    info["domain"], info["name"], info["items"],
+                    info["prompts"], info["up_rules"])
+        return ok(info)
 
     @api.get("/jobs")
     def jobs(limit: int = 50, status: str = ""):

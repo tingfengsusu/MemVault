@@ -188,8 +188,10 @@ def test_old_pages_still_work(api):
     """双轨并存:JSON 层不影响原页面路由。"""
     client, app = api
     m, cat_id, a, b, c = _seed(app)
+    # 已迁 Vue 的页面断言"外壳"(标题仍在 <title> 里,便于标签页识别);
+    # 未迁的页面仍是完整 Jinja2 渲染。
     for path, marker in (("/", "库 · MemVault"), ("/inbox", "待整理"),
-                         ("/categories", "分类树"), ("/jobs", "任务"),
+                         ("/categories", "分类 · MemVault"), ("/jobs", "任务"),
                          (f"/items/{a}", "卧推讲解"), ("/sources", "订阅"),
                          ("/settings", "设置")):
         r = client.get(path)

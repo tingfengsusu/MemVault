@@ -101,11 +101,12 @@ v0.1 核心完成:多模态采集(视频/网页/商品/文档)→ 本地记忆�
 - **前端工程** `web/`:改前端后要 `cd web && npm install && npm run build` ——
   **产物直接落 `memvault/server/static/dist/`,已入库**(拉代码即可跑,不必装 node;
   但要改前端源码就得有 node,本机 node v24 / npm 走淘宝镜像)。
-- **只迁了两页**:`inbox.html` / `search.html` 现在是挂载点(`#inbox-app` / `#search-app`),
+- **已迁五页**:库首页 `/`、待整理箱 `/inbox`、检索 `/search`、条目详情 `/items/{id}`、分类管理 `/categories`
+  (挂载点 `#home-app` / `#inbox-app` / `#search-app` / `#item-app` / `#categories-app`),
   数据走 `/api/inbox`、`/api/items`、`/api/search/images`。**回退方式 = revert 对应提交**
   (旧模板在 git 历史里)。组件复用既有 class,所以三个主题照旧生效。
-- **待办(方案 A 的剩余部分)**:其余 7 页是否继续迁(按交互价值:item 详情 > 分类 > 设置 >
-  其余);迁移一页的固定动作 = 加 API(若缺)→ 写 view → 模板变挂载点 → 页面断言改接口断言 →
+- **待办(方案 A 的剩余部分)**:还剩 4 页未迁(设置 / 任务 / 订阅 / 聊天),都是交互较轻的
+  页面;迁移一页的固定动作 = 加 API(若缺)→ 写 view → 模板变挂载点 → 页面断言改接口断言 →
   Playwright 冒烟。
 
 ## 用户明确搁置的一件事(勿擅自开工)
