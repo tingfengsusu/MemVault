@@ -58,7 +58,8 @@ def build_dispatch(memory, cfg: dict) -> dict:
             progress=lambda m: logger.info("[job] %s", m),
         )),
         "ingest_text": with_auto(lambda p: text_mod.ingest_text(p, memory)),
-        "ingest_product": with_auto(lambda p: text_mod.ingest_product(p, memory)),
+        "ingest_product": with_auto(
+            lambda p: text_mod.ingest_product(p, memory, cfg)),
         "ingest_file": with_auto(lambda p: files_mod.ingest_file(p, memory, cfg)),
         "auto_process": lambda p: auto_mod.auto_process(p, memory, cfg),
         "build_links": lambda p: links_mod.build_links_for_item(

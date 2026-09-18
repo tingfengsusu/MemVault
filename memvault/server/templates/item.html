@@ -109,6 +109,12 @@
     </div>
     {% if c.content %}<div class="snippet full">{{ c.content[:600] }}</div>{% endif %}
     {% if c.media_url %}<img class="thumb" src="{{ c.media_url }}" loading="lazy">{% endif %}
+    {% if c.media_url and image_search_on %}
+    <form class="inline" method="post" action="/items/{{ item.id }}/similar-image">
+      <input type="hidden" name="chunk_id" value="{{ c.id }}">
+      <button class="ghost" style="font-size:12px">🔍 找相似画面</button>
+    </form>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

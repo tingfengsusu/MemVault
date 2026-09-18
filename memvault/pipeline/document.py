@@ -15,8 +15,10 @@ DOC_EXT = {".pdf", ".docx", ".doc", ".xlsx", ".xlsm", ".xls",
 _MAX_CHUNK = 1200        # 单块字符上限
 _MAX_CHUNKS = 300        # 单文档块数上限(整本书约 36 万字)
 _MAX_PDF_PAGES = 80
-_MAX_PDF_IMAGES = 10
+_MAX_PDF_IMAGES = 20
 _MIN_IMAGE_BYTES = 30_000  # 小于 30KB 的图视为图标/水印跳过
+_MIN_PDF_DRAWINGS = 6      # 一页矢量绘图数超过此值,判为图表页并渲染存档
+_PDF_FIG_DPI = 110
 
 
 def _chunk_text(text: str) -> list[str]:
@@ -64,6 +66,27 @@ def _parse_pdf(path: Path, images_dir: Path):
                 images.append(str(fp))
             except Exception as e:  # noqa: BLE001 — 单图失败不影响解析
                 logger.warning("PDF 图片抽取失败: %s", e)
+
+        # 矢量图表(流程图/示意图)不是位图,get_images 抓不到 → 把这类页面
+        # 渲染成 jpg 存档,"那张流程图在哪本书里"才能被搜到
+        for pno, page in enumerate(doc):
+            if pno >= _MAX_PDF_PAGES or len(images) >= _MAX_PDF_IMAGES:
+                break
+            try:
+                drawings = page.get_drawings()
+            except Exception:  # noqa: BLE001 — 页级异常跳过
+                continue
+            if len(drawings) < _MIN_PDF_DRAWINGS:
+                continue
+            pix = page.get_pixmap(dpi=_PDF_FIG_DPI)
+            if pix.width < 120 or pix.height < 120:
+                continue
+            images_dir.mkdir(parents=True, exist_ok=True)
+            fp = images_dir / f"pdf_page_{pno + 1:03d}.jpg"
+            pix.pil_save(str(fp), format="JPEG", quality=82)
+            images.append(str(fp))
+            logger.info("PDF 第 %d 页矢量图表(绘图 %d 个)→ 渲染存档",
+                        pno + 1, len(drawings))
     return "\n".join(texts), images
 
 
@@ -203,12 +226,16 @@ def parse_document(path, memory, cfg: dict, domain: str = "general") -> int:
     chunks = _chunk_text(text)
     for seq, chunk in enumerate(chunks):
         memory.add_text_chunk(item_id, chunk, seq=seq)
+    # 图像块带向量(装了 Chinese-CLIP 时):PDF 图表/商品图才能"以图搜到"
+    ib = memory.image_embedder
     for img_seq, img in enumerate(images):
-        memory.add_image_chunk(item_id, img, seq=500 + img_seq)
+        memory.add_image_chunk(item_id, img, seq=500 + img_seq,
+                               image_embedder=ib)
 
     memory.db.update_item_media(
         item_id, content_text=(text[:4000] or "(未提取到文本)"),
         media_paths=images)
-    logger.info("文档入库 item=%s (%s): %d 块 + %d 图",
-                item_id, ext, len(chunks), len(images))
+    logger.info("文档入库 item=%s (%s): %d 块 + %d 图%s",
+                item_id, ext, len(chunks), len(images),
+                "(含图像向量)" if ib is not None else "")
     return item_id
