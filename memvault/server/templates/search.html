@@ -1,7 +1,42 @@
 {% extends "base.html" %}
 {% block title %}搜索 · MemVault{% endblock %}
 {% block content %}
-<h3 style="margin:4px 0 12px">“{{ q }}” 的检索结果({{ results|length }}{% if images %} + 画面 {{ images|length }}{% endif %})</h3>
+{% if not query_label %}
+<form method="post" action="/search/image" enctype="multipart/form-data"
+      class="card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"
+      id="imgupload">
+  <span class="muted">以图搜图:</span>
+  <input type="file" name="file" accept="image/*" required id="imgfile"
+         style="font-size:13px">
+  <button class="ghost">🔍 找相似画面</button>
+  <span class="muted" style="font-size:12px">(拖一张图到本页也可以;需要 cn-clip 权重)</span>
+</form>
+<script>
+  // 拖拽图片到页面任意位置即视为上传
+  document.addEventListener('dragover', function (e) { e.preventDefault(); });
+  document.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f || !f.type.startsWith('image/')) return;
+    var input = document.getElementById('imgfile');
+    var dt = new DataTransfer(); dt.items.add(f); input.files = dt.files;
+    document.getElementById('imgupload').submit();
+  });
+</script>
+{% endif %}
+
+{% if query_label %}
+<div class="card" style="display:flex;gap:12px;align-items:center">
+  {% if query_image %}<img src="{{ query_image }}" style="height:72px;border-radius:6px">{% endif %}
+  <div>
+    <h3 style="margin:0">以图搜图:{{ query_label }}</h3>
+    <p class="muted" style="margin:4px 0 0">共 {{ images|length }} 个相似画面
+      {% if not images %}— 库里还没有已建向量的画面,或这张图确实不像{% endif %}</p>
+  </div>
+</div>
+{% endif %}
+
+{% if q %}<h3 style="margin:4px 0 12px">“{{ q }}” 的检索结果({{ results|length }}{% if images %} + 画面 {{ images|length }}{% endif %})</h3>{% endif %}
 
 {% if images %}
 <div class="card">
