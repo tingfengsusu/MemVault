@@ -308,20 +308,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/inbox")
     def inbox(request: Request, domain: str = ""):
-        from collections import defaultdict as _dd
-
-        items = memory.db.list_items(status="inbox", domain=domain or None,
-                                     limit=200)
-        all_cats = memory.db.categories()
-        cats_by_domain = _dd(list)
-        for c in all_cats:
-            if c.get("status") != "archived":
-                cats_by_domain[c["domain"]].append(c)
-        cat_names = {c["id"]: c["name"] for c in all_cats}
+        # 本页已迁移到 Vue(方案 A):这里只渲染外壳,数据由 /api/inbox 提供。
+        # 旧模板仍在 git 历史里,需要回退时 revert 对应提交即可。
         return templates.TemplateResponse(request, "inbox.html",
-            ctx(request, items=items, domain=domain,
-                domain_counts=memory.db.items_by_domain(status="inbox"),
-                cats_by_domain=dict(cats_by_domain), cat_names=cat_names))
+            ctx(request, domain=domain))
 
     @app.post("/items/{item_id}/classify")
     def item_classify(item_id: int, category_id: int = Form(...)):

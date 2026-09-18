@@ -246,6 +246,28 @@ def build_router(memory, cfg: dict) -> APIRouter:
         memory.db.set_item_status(item_id, status)
         return ok(ser.item_brief(memory.get_item(item_id)))
 
+    @api.post("/items/{item_id}/reanalyze")
+    def reanalyze(item_id: int):
+        """重新分析(交给队列:路由 + 提取)。"""
+        if not memory.get_item(item_id):
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        memory.db.enqueue("auto_process", {"item_id": item_id})
+        return ok({"item_id": item_id, "queued": "auto_process"})
+
+    @api.post("/items/{item_id}/classify")
+    def classify(item_id: int, category_id: int = Body(..., embed=True)):
+        """手动归入指定分类(待整理箱的"归入所选分类")。"""
+        it = memory.get_item(item_id)
+        if not it:
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        cat = memory.db.get_category(int(category_id))
+        if not cat:
+            fail("not_found", "分类不存在", 404)
+        memory.db.set_item_category(item_id, cat["id"], None,
+                                    f"手动归入:{cat['name']}")
+        memory.db.set_item_status(item_id, "filed")
+        return ok(ser.item_brief(memory.get_item(item_id)))
+
     @api.get("/inbox")
     def inbox(domain: str = "", page: int = 1,
               page_size: int = 50):
@@ -259,7 +281,8 @@ def build_router(memory, cfg: dict) -> APIRouter:
             if c.get("status") != "archived":
                 cats.setdefault(c["domain"], []).append(ser.category(c))
         return page_payload([ser.item_brief(it) for it in rows], total, page,
-                            page_size, categories=cats)
+                            page_size, categories=cats,
+                            domain_counts=memory.db.items_by_domain(status="inbox"))
 
     @api.post("/inbox/batch")
     def inbox_batch(payload: dict = Body(...)):

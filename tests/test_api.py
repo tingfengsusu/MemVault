@@ -128,8 +128,12 @@ def test_panel_pages(env):
 
     assert client.get("/").status_code == 200
     assert "示例页面" in client.get("/").text
+    # 待整理箱已迁移到 Vue(方案 A):页面渲染外壳,数据改由 /api/inbox 提供
     inbox = client.get("/inbox")
-    assert inbox.status_code == 200 and "示例页面" in inbox.text
+    assert inbox.status_code == 200
+    assert 'id="inbox-app"' in inbox.text and "/static/dist/inbox.js" in inbox.text
+    api_inbox = client.get("/api/inbox").json()["data"]
+    assert any(it["title"] == "示例页面" for it in api_inbox["items"])
     assert client.get("/jobs").status_code == 200
 
     item_id = app.state.memory.db.list_items()[0]["id"]

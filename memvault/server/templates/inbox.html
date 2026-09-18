@@ -1,62 +1,10 @@
 {% extends "base.html" %}
 {% block title %}待整理 · MemVault{% endblock %}
 {% block content %}
-<h3 style="margin:4px 0 12px">待整理箱({{ items|length }})</h3>
-<div class="card">
-  <form method="post" action="/inbox/batch" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <input type="hidden" name="domain" value="{{ domain }}">
-    <span class="muted">批量操作{{ (domain or '') and '(' + domain + ' 领域)' or '(全部领域)' }}:</span>
-    <button name="action" value="filed">✔ 全部已归类</button>
-    <button class="ghost" name="action" value="archived">🗃 全部归档</button>
-    <button class="ghost" name="action" value="auto"
-            onclick="return confirm('将对 {{ items|length }} 条逐条调用 AI 自动分类(消耗 API 额度,约需几分钟),继续?')">
-      🤖 全部交给 AI 分类</button>
-    <span class="muted">「已归类」=确认处理完毕;「归档」=不再显示但保留数据。</span>
-  </form>
-  <div class="chips" style="margin:8px 0 0">
-    <span>按领域:</span>
-    <a class="tag {{ '' if not domain else 'gray' }}" href="/inbox">全部</a>
-    {% for d in domain_counts %}
-    <a class="tag {{ 'gray' if domain != d.domain else '' }}" href="/inbox?domain={{ d.domain }}">{{ d.domain }}({{ d.c }})</a>
-    {% endfor %}
-  </div>
+{# 本页已迁移到 Vue(方案 A 渐进增强)。数据接口:/api/inbox、/api/items/*。
+   Jinja2 只提供外壳(导航/主题);旧模板在 git 历史里,回退 = revert 对应提交。 #}
+<div id="inbox-app" data-domain="{{ domain }}">
+  <noscript>待整理箱需要 JavaScript;也可以直接调用 <code>/api/inbox</code>。</noscript>
 </div>
-{% for it in items %}
-<div class="card">
-  <h3><a href="/items/{{ it.id }}">{{ it.title }}</a></h3>
-  <div>
-    <span class="tag">{{ it.domain }}</span>
-    <span class="tag gray">{{ it.type }}</span>
-    {% if it.category_id and cat_names.get(it.category_id) %}
-      <span class="tag warn">AI 建议:{{ cat_names[it.category_id] }}({{ '%.2f'|format(it.category_conf or 0) }})</span>
-    {% endif %}
-    {% if it.auto_note %}<span class="muted">AI:{{ it.auto_note[:70] }}</span>{% endif %}
-  </div>
-  {% if it.content_text %}<div class="snippet">{{ it.content_text[:100] }}…</div>{% endif %}
-  <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    {% set dom_cats = cats_by_domain.get(it.domain, []) %}
-    {% if dom_cats %}
-    <form class="inline" method="post" action="/items/{{ it.id }}/classify">
-      <select name="category_id">
-        {% for c in dom_cats %}
-        <option value="{{ c.id }}" {{ 'selected' if c.id == it.category_id else '' }}>{{ c.name }}</option>
-        {% endfor %}
-      </select>
-      <button>归入所选分类</button>
-    </form>
-    {% endif %}
-    <form class="inline" method="post" action="/items/{{ it.id }}/status?status=filed">
-      <button class="ghost">✔ 已归类(不指定)</button>
-    </form>
-    <form class="inline" method="post" action="/items/{{ it.id }}/status?status=archived">
-      <button class="ghost">归档</button>
-    </form>
-    <form class="inline" method="post" action="/items/{{ it.id }}/reanalyze">
-      <button class="ghost">🔄 重新分析</button>
-    </form>
-  </div>
-</div>
-{% else %}
-<div class="card empty"><h3>空空如也</h3><p class="muted">新采集的条目会先落在这里;开启 LLM 后自动分类会定期消化它们。</p></div>
-{% endfor %}
+<script type="module" src="/static/dist/inbox.js"></script>
 {% endblock %}
