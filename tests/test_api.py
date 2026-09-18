@@ -130,8 +130,12 @@ def test_panel_pages(env):
     step_ok = step(app.state.memory, cfg)
     assert step_ok
 
-    assert client.get("/").status_code == 200
-    assert "示例页面" in client.get("/").text
+    # 库首页已迁移到 Vue:外壳 + 接口数据(方案 A)
+    home = client.get("/")
+    assert home.status_code == 200
+    assert 'id="home-app"' in home.text and "/static/dist/home.js" in home.text
+    listing = client.get("/api/items", params={"with_related": 1}).json()["data"]
+    assert any(it["title"] == "示例页面" for it in listing["items"])
     # 待整理箱已迁移到 Vue(方案 A):页面渲染外壳,数据改由 /api/inbox 提供
     inbox = client.get("/inbox")
     assert inbox.status_code == 200

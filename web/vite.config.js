@@ -17,6 +17,7 @@ export default defineConfig({
         inbox: resolve(__dirname, 'src/entries/inbox.js'),
         search: resolve(__dirname, 'src/entries/search.js'),
         item: resolve(__dirname, 'src/entries/item.js'),
+        home: resolve(__dirname, 'src/entries/home.js'),
       },
       output: {
         entryFileNames: '[name].js',

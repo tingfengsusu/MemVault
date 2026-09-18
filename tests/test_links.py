@@ -163,8 +163,12 @@ def test_library_page_shows_related(tmp_path, monkeypatch):
         mem.add_text_chunk(b, "膝盖与脚尖同向")
         build_links_for_item(mem, a, cfg)
 
+        # 库首页迁到 Vue:卡片上的"相关条目"来自 /api/items?with_related=1
         page = client.get("/")
-        assert "🔗 相关:" in page.text and "深蹲要点二" in page.text
+        assert 'id="home-app"' in page.text
+        listing = client.get("/api/items", params={"with_related": 1}).json()["data"]
+        card = next(it for it in listing["items"] if it["id"] == a)
+        assert card["related"] and card["related"][0]["title"] == "深蹲要点二"
 
         detail = client.get(f"/api/items/{a}").json()["data"]
         assert detail["related"] and detail["related"][0]["title"] == "深蹲要点二"

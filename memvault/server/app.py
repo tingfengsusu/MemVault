@@ -182,18 +182,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/")
     def index(request: Request, domain: str = "", page: int = 1):
-        page = max(1, page)
-        stats = memory.db.stats()
-        items = memory.db.list_items(domain=domain or None,
-                                     limit=50, offset=(page - 1) * 50)
-        md = media_dir(cfg)
-        related_map = memory.db.links_for_items([it["id"] for it in items])
-        for it in items:
-            it["related"] = related_map.get(it["id"], [])
-            it["thumb"] = thumb_url(it, md)
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/stats 与
+        # /api/items?with_related=1 提供;domain 透传进挂载点。
         return templates.TemplateResponse(request, "index.html",
-            ctx(request, stats=stats, items=items, domain=domain, page=page,
-                domain_counts=memory.db.items_by_domain()))
+            ctx(request, domain=domain))
 
     @app.get("/search")
     def search(request: Request, q: str = "", similar: str = ""):

@@ -214,9 +214,12 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.get("/items")
     def list_items(q: str = "", domain: str = "", status: str = "",
-                   category_id: Optional[int] = None,
+                   category_id: Optional[int] = None, with_related: int = 0,
                    page: int = 1, page_size: int = DEFAULT_PAGE_SIZE):
-        """检索条目:q 走混合检索(向量+关键词),否则按 domain/status 过滤分页。"""
+        """检索条目:q 走混合检索(向量+关键词),否则按 domain/status 过滤分页。
+
+        with_related=1 时给每条带上"相关条目"(库首页卡片用),一次批量查询。
+        """
         page, page_size = _page_args(page, page_size)
         if q.strip():
             # 混合检索没有 SQL 分页语义 → 取前 page*page_size 条再切片,
@@ -247,6 +250,10 @@ def build_router(memory, cfg: dict) -> APIRouter:
         items = [ser.item_brief(it) for it in rows]
         if category_id:   # list_items 没有分类过滤,这里补一层
             items = [it for it in items if it["category_id"] == category_id]
+        if with_related and items:
+            rel = memory.db.links_for_items([it["id"] for it in items])
+            for it in items:
+                it["related"] = rel.get(it["id"], [])
         return page_payload(items, total, page, page_size)
 
     @api.get("/items/{item_id}")
