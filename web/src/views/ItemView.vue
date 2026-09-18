@@ -5,6 +5,8 @@
  * 数据:/api/items/{id} + /api/categories;动作:/api/items/{id}/*
  */
 import { computed, onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, api, itemApi } from '../api/client.js'
 
 const props = defineProps({
@@ -14,9 +16,10 @@ const item = ref(null)
 const categories = ref([])
 const loading = ref(true)
 const busy = ref(false)
-const toast = ref(null)
 const pickCategory = ref('')
 const reloading = ref(false)
+const action = ref('')     // 正在执行的动作名(按钮文案变成"…中")
+const justDone = ref('')   // 刚完成:按钮短暂显示"✓ 已提交",点击处立刻有反馈
 
 const icon = { video: '🎬', product: '🛒', doc: '📄', note: '📝', image: '🖼', file: '📎' }
 const aiAttrs = computed(() => Object.entries(item.value?.attrs_ai || {}))
@@ -26,10 +29,7 @@ const textChunks = computed(() =>
 const imageChunks = computed(() =>
   (item.value?.chunks || []).filter(c => c.modality === 'image'))
 
-function flash(kind, text) {
-  toast.value = { kind, text }
-  setTimeout(() => { if (toast.value?.text === text) toast.value = null }, 5000)
-}
+const flash = (kind, text) => showToast(kind, text)
 
 async function load(showSpinner = true) {
   if (showSpinner) loading.value = true
@@ -46,30 +46,42 @@ async function load(showSpinner = true) {
   }
 }
 
-async function act(fn, okText) {
+async function act(fn, okText, name = '') {
   busy.value = true
+  action.value = name
   try {
     await fn()
     flash('ok', okText)
+    justDone.value = name
+    setTimeout(() => { if (justDone.value === name) justDone.value = '' }, 2500)
     await load(false)
   } catch (e) {
     flash('err', e.message)
   } finally {
     busy.value = false
+    action.value = ''
   }
 }
 
+/** 按钮文案:执行中 → 运行态;刚完成 → 完成态;否则原文案 */
+function label(name, idle, running, done) {
+  if (action.value === name) return running
+  if (justDone.value === name) return done
+  return idle
+}
+
 const reanalyze = () => act(() => itemApi.reanalyze(item.value.id),
-  '已排入 AI 重新分析队列(任务页可看进度)')
-const addToCart = () => act(() => itemApi.cart(item.value.id), '已排入京东加购队列')
+  '已排入 AI 重新分析队列 —— 任务页可看进度,完成后属性会自动刷新', 'reanalyze')
+const addToCart = () => act(() => itemApi.cart(item.value.id),
+  '已排入京东加购队列(任务页可看结果)', 'cart')
 const bindUp = () => act(
   () => itemApi.bindUp(item.value.id, pickCategory.value,
                        item.value.up?.up_mid, item.value.up?.up_name),
-  '已把该 UP 的视频归到此分类')
+  '已把该 UP 的视频归到此分类(以后它的新视频直接归档)', 'bind')
 const unbindUp = () => act(() => itemApi.unbindUp(item.value.up.up_mid),
-  '已解除该 UP 的分类规则')
-const setStatus = (s) => act(() => itemApi.setStatus(item.value.id, s),
-  s === 'archived' ? '已归档' : '状态已更新')
+  '已解除该 UP 的分类规则', 'unbind')
+const setStatus = (st) => act(() => itemApi.setStatus(item.value.id, st),
+  st === 'archived' ? '已归档(库里仍保留数据)' : '已放回待整理箱', 'status-' + st)
 
 onMounted(() => load())
 </script>
@@ -84,11 +96,7 @@ onMounted(() => load())
     </div>
 
     <template v-else>
-      <div v-if="toast" class="card">
-        <span :class="toast.kind === 'err' ? 'tag warn' : 'tag'">
-          {{ toast.kind === 'err' ? '出错' : '完成' }}</span>
-        <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-      </div>
+    <ToastHost />
 
       <div class="card">
         <h3 style="font-size:17px">
@@ -130,11 +138,14 @@ onMounted(() => load())
           自动分析:{{ item.auto_note }}</p>
 
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="ghost" :disabled="busy" @click="reanalyze">🔄 重新分析</button>
+          <button class="ghost" :disabled="busy" @click="reanalyze">
+            {{ label('reanalyze', '🔄 重新分析', '⏳ 正在排队…', '✓ 已排入队列') }}</button>
           <button v-if="item.type === 'product'" :disabled="busy" @click="addToCart">
-            🛒 加入京东购物车</button>
-          <button class="ghost" :disabled="busy" @click="setStatus('inbox')">放回待整理箱</button>
-          <button class="ghost" :disabled="busy" @click="setStatus('archived')">归档</button>
+            {{ label('cart', '🛒 加入京东购物车', '⏳ 正在排队…', '✓ 已排入队列') }}</button>
+          <button class="ghost" :disabled="busy" @click="setStatus('inbox')">
+            {{ label('status-inbox', '放回待整理箱', '…', '✓ 已放回') }}</button>
+          <button class="ghost" :disabled="busy" @click="setStatus('archived')">
+            {{ label('status-archived', '归档', '…', '✓ 已归档') }}</button>
           <a class="jump" :href="`/search?similar=${item.id}:${imageChunks[0]?.id}`"
              v-if="imageChunks.length">🔍 以首个画面找相似</a>
         </div>
@@ -153,7 +164,8 @@ onMounted(() => load())
                 {{ c.domain }} / {{ c.name }}<template v-if="c.status === 'proposed'">(待确认)</template>
               </option>
             </select>
-            <button class="ghost" :disabled="busy" @click="bindUp">📌 该 UP 的视频都归此分类</button>
+            <button class="ghost" :disabled="busy" @click="bindUp">
+              {{ label('bind', '📌 该 UP 的视频都归此分类', '⏳ 绑定中…', '✓ 已绑定') }}</button>
             <button v-if="item.up.rule_category_id" class="ghost" :disabled="busy"
                     @click="unbindUp">解除该 UP 的分类规则</button>
           </div>

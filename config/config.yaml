@@ -29,3 +29,4 @@ llm:
   base_url: https://api.commandcode.ai/provider/v1
   model: deepseek/deepseek-v4-flash
   classify_confidence: 0.8
+  ads_policy: ignore      # 视频/页面里的广告信息:ignore=忽略不写进属性 | mention=单独一条属性

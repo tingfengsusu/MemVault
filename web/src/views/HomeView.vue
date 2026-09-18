@@ -4,6 +4,8 @@
  * 数据:/api/stats、/api/items?with_related=1
  */
 import { computed, onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, api } from '../api/client.js'
 
 const props = defineProps({
@@ -18,15 +20,11 @@ const page = ref(1)
 const pageSize = 50
 const domain = ref(props.initialDomain || '')
 const loading = ref(true)
-const toast = ref(null)
 
 const icons = { video: '🎬', product: '🛒', doc: '📄', note: '📝', image: '🖼', file: '📎' }
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
-function flash(kind, text) {
-  toast.value = { kind, text }
-  setTimeout(() => { if (toast.value?.text === text) toast.value = null }, 4000)
-}
+const flash = (kind, text) => showToast(kind, text)
 
 async function load(toPage = 1) {
   loading.value = true
@@ -58,11 +56,7 @@ onMounted(() => load(1))
 
 <template>
   <div>
-    <div v-if="toast" class="card">
-      <span :class="toast.kind === 'err' ? 'tag warn' : 'tag'">
-        {{ toast.kind === 'err' ? '出错' : '提示' }}</span>
-      <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-    </div>
+    <ToastHost />
 
     <div class="chips">
       <span>条目 <b>{{ stats.items ?? '—' }}</b></span>

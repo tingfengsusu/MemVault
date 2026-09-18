@@ -35,6 +35,8 @@ DEFAULTS = {
         "api_key": None,          # 也可用环境变量 DEEPSEEK_API_KEY
         "temperature": 0.1,
         "classify_confidence": 0.8,
+        # 广告/推广内容怎么处理:ignore=不写进属性(默认)| mention=单独一条属性
+        "ads_policy": "ignore",
         "web": {
             "cookies_file": None,   # 默认 <项目>/config/deepseek_web_auth.json
             "headless": False,
