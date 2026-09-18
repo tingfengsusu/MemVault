@@ -165,22 +165,41 @@ def api_client(tmp_path):
 
 
 def test_panel_categories_flow(api_client):
+    """分类页迁到 Vue 后:外壳 + /api/categories* 接口(旧表单端点双轨保留)。"""
     client, app = api_client
+    page = client.get("/categories")
+    assert page.status_code == 200 and 'id="categories-app"' in page.text
+
+    # 旧表单端点仍可用
     r = client.post("/categories/add",
                     data={"domain": "fitness", "name": "胸部"},
                     follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/categories")
-    assert "胸部" in page.text
+    # 新 JSON 端点
+    r2 = client.post("/api/categories", json={"domain": "fitness", "name": "背部"})
+    assert r2.json()["data"]["name"] == "背部"
 
-    # 模拟 LLM 提议的分类 → 确认采纳
+    data = client.get("/api/categories").json()["data"]
+    names = [c["name"] for c in data["groups"]["fitness"]]
+    assert "胸部" in names and "背部" in names
+    assert "fitness" in data["domains"]
+
+    # 模拟 LLM 提议的分类 → 确认采纳(接口版)
     cat_id = app.state.memory.db.add_category("fitness", "腿部",
                                               status="proposed")
-    page = client.get("/categories")
-    assert "待确认" in page.text
-    r = client.post(f"/categories/{cat_id}/confirm", follow_redirects=False)
-    assert r.status_code == 303
+    data = client.get("/api/categories").json()["data"]
+    leg = next(c for c in data["items"] if c["id"] == cat_id)
+    assert leg["status"] == "proposed"                       # 前端据此显示"待确认"
+    assert client.post(f"/api/categories/{cat_id}/confirm").json()["ok"] is True
     assert app.state.memory.db.get_category(cat_id)["status"] == "active"
+
+    # 删除分类(接口):条目退回、分类消失
+    item = app.state.memory.add_item("fitness", "note", "待退回",
+                                     category_id=cat_id, status="filed")
+    d = client.post(f"/api/categories/{cat_id}/delete").json()["data"]
+    assert d["items"] == 1 and app.state.memory.get_item(item)["status"] == "inbox"
+    assert app.state.memory.db.get_category(cat_id) is None
+    assert client.post("/api/categories/9999/delete").status_code == 404
 
 
 def test_panel_category_domain_suggestions(api_client):
@@ -190,11 +209,13 @@ def test_panel_category_domain_suggestions(api_client):
     app.state.memory.add_item("reading", "doc", "某本书")
     app.state.memory.db.add_category("fitness", "胸部")
 
-    html = client.get("/categories").text
-    assert '<datalist id="domain-options">' in html
+    # 领域建议由接口提供(datalist 在 Vue 组件里)
+    page = client.get("/categories").text
+    assert 'id="categories-app"' in page
+    data = client.get("/api/categories").json()["data"]
     for d in ("general", "reading", "fitness"):   # 条目领域 + 已建分类领域
-        assert f'<option value="{d}">' in html
-    assert 'list="domain-options"' in html        # 输入框仍可手填新领域
+        assert d in data["domains"]
+    assert data["domains"] == sorted(data["domains"])
 
 
 def test_panel_reanalyze_enqueues_job(api_client):
@@ -503,11 +524,13 @@ def test_panel_bind_up_and_list(api_client):
     assert app.state.memory.db.up_category("777")["category_id"] == cat
     assert app.state.memory.get_item(item)["category_id"] == cat
 
-    # 分类页仍能看到规则(页面 + 接口两处)
+    # 分类页迁到 Vue:规则由 /api/categories.up_rules 提供(组件渲染该区块)
     page = client.get("/categories").text
-    assert "UP主 → 分类 规则" in page and "胡仔一人食" in page
+    assert 'id="categories-app"' in page
     rules = client.get("/api/categories").json()["data"]["up_rules"]
     assert rules and rules[0]["up_mid"] == "777"
+    assert rules[0]["up_name"] == "胡仔一人食"
+    assert rules[0]["category_name"] == "冰淇淋教程"
 
     # 解除绑定:接口与旧表单端点(双轨)都能解
     assert client.post("/api/up/777/unbind").json()["data"]["removed"] == 1
@@ -559,9 +582,14 @@ def test_delete_category_missing_and_panel(api_client):
                        follow_redirects=False).status_code == 404
 
     cat = app.state.memory.db.add_category("general", "要删掉的")
-    page = client.get("/categories").text
-    assert "要删掉的" in page and "🗑 删除" in page
+    names = [c["name"] for c in client.get("/api/categories").json()["data"]["items"]]
+    assert "要删掉的" in names
 
+    # 旧表单端点(双轨)与接口删除都应生效
     r = client.post(f"/categories/{cat}/delete", follow_redirects=False)
     assert r.status_code == 303
-    assert "要删掉的" not in client.get("/categories").text
+    names = [c["name"] for c in client.get("/api/categories").json()["data"]["items"]]
+    assert "要删掉的" not in names
+    cat2 = app.state.memory.db.add_category("general", "再删一次")
+    assert client.post(f"/api/categories/{cat2}/delete").json()["data"]["name"] == "再删一次"
+    assert app.state.memory.db.get_category(cat2) is None

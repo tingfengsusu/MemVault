@@ -474,8 +474,39 @@ def build_router(memory, cfg: dict) -> APIRouter:
         groups: dict = {}
         for c in cats:
             groups.setdefault(c["domain"], []).append(c)
-        return ok({"items": cats, "groups": groups,
+        # 领域候选:已有分类的领域 ∪ 条目用到的领域(前端输入框下拉建议用)
+        domains = sorted(set(groups) |
+                         {d["domain"] for d in memory.db.items_by_domain()})
+        return ok({"items": cats, "groups": groups, "domains": domains,
                    "up_rules": memory.db.up_rules()})
+
+    @api.post("/categories")
+    def add_category(domain: str = Body(...), name: str = Body(...)):
+        """新增分类(领域可手填,也可用 /api/categories 里的 domains 建议)。"""
+        name = (name or "").strip()[:40]
+        if not name:
+            fail("invalid_name", "分类名不能为空", 422)
+        cid = memory.db.add_category((domain or "general").strip(),
+                                     name, status="active")
+        return ok(ser.category(memory.db.get_category(cid)))
+
+    @api.post("/categories/{category_id}/confirm")
+    def confirm_category(category_id: int):
+        if not memory.db.get_category(category_id):
+            fail("not_found", f"分类不存在: {category_id}", 404)
+        memory.db.confirm_category(category_id)
+        return ok(ser.category(memory.db.get_category(category_id)))
+
+    @api.post("/categories/{category_id}/delete")
+    def delete_category(category_id: int):
+        """删除分类:条目退回待整理箱,专属提示词与 UP 规则一并清理。"""
+        info = memory.db.delete_category(category_id)
+        if info is None:
+            fail("not_found", f"分类不存在: {category_id}", 404)
+        logger.info("删除分类 %s/%s:条目退回 %d 条,清理提示词 %d 条、UP规则 %d 条",
+                    info["domain"], info["name"], info["items"],
+                    info["prompts"], info["up_rules"])
+        return ok(info)
 
     @api.get("/jobs")
     def jobs(limit: int = 50, status: str = ""):

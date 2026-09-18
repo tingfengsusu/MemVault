@@ -65,6 +65,13 @@ export const inboxApi = {
   reanalyze: (itemId) => api.post(`/api/items/${itemId}/reanalyze`),
 }
 
+export const categoryApi = {
+  add: (domain, name) => api.post('/api/categories', { domain, name }),
+  confirm: (id) => api.post(`/api/categories/${id}/confirm`, {}),
+  remove: (id) => api.post(`/api/categories/${id}/delete`, {}),
+  unbindUp: (upMid) => api.post(`/api/up/${upMid}/unbind`, {}),
+}
+
 export const itemApi = {
   reanalyze: (itemId) => api.post(`/api/items/${itemId}/reanalyze`),
   cart: (itemId) => api.post(`/api/items/${itemId}/cart`),

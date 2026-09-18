@@ -272,17 +272,9 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     # ── 分类管理(M3)────────────────────────────────────────────────
     @app.get("/categories")
     def categories_page(request: Request):
-        from collections import defaultdict
-
-        groups = defaultdict(list)
-        for c in memory.db.categories():
-            c["item_count"] = memory.db.count_items(category_id=c["id"])
-            groups[c["domain"]].append(c)
-        # 领域候选:已有分类的领域 + 条目实际用到的领域(输入框给下拉建议,仍可手填新领域)
-        domains = sorted(set(groups) | {d["domain"] for d in memory.db.items_by_domain()})
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/categories 提供。
         return templates.TemplateResponse(request, "categories.html",
-            ctx(request, groups=dict(groups), domains=domains,
-                up_rules=memory.db.up_rules()))
+            ctx(request))
 
     @app.post("/categories/add")
     def categories_add(domain: str = Form(...), name: str = Form(...)):

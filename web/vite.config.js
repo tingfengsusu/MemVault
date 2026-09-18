@@ -18,6 +18,7 @@ export default defineConfig({
         search: resolve(__dirname, 'src/entries/search.js'),
         item: resolve(__dirname, 'src/entries/item.js'),
         home: resolve(__dirname, 'src/entries/home.js'),
+        categories: resolve(__dirname, 'src/entries/categories.js'),
       },
       output: {
         entryFileNames: '[name].js',
