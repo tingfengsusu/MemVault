@@ -107,6 +107,12 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     app.mount("/static", StaticFiles(directory=str(TEMPLATES_DIR.parent / "static")),
               name="static")
 
+    # JSON API 层(方案 A 第 0 步):前端/脚本的统一入口,与页面路由双轨并存
+    from memvault.server.api import build_router, install_error_handlers
+
+    install_error_handlers(app)
+    app.include_router(build_router(memory, cfg))
+
     if start_worker:
         from memvault.scheduler import run_scheduler
         from memvault.worker import run_worker
