@@ -1,80 +1,10 @@
 {% extends "base.html" %}
-{% block title %}搜索 · MemVault{% endblock %}
+{% block title %}检索 · MemVault{% endblock %}
 {% block content %}
-{% if not query_label %}
-<form method="post" action="/search/image" enctype="multipart/form-data"
-      class="card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"
-      id="imgupload">
-  <span class="muted">以图搜图:</span>
-  <input type="file" name="file" accept="image/*" required id="imgfile"
-         style="font-size:13px">
-  <button class="ghost">🔍 找相似画面</button>
-  <span class="muted" style="font-size:12px">(拖一张图到本页也可以;需要 cn-clip 权重)</span>
-</form>
-<script>
-  // 拖拽图片到页面任意位置即视为上传
-  document.addEventListener('dragover', function (e) { e.preventDefault(); });
-  document.addEventListener('drop', function (e) {
-    e.preventDefault();
-    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!f || !f.type.startsWith('image/')) return;
-    var input = document.getElementById('imgfile');
-    var dt = new DataTransfer(); dt.items.add(f); input.files = dt.files;
-    document.getElementById('imgupload').submit();
-  });
-</script>
-{% endif %}
-
-{% if query_label %}
-<div class="card" style="display:flex;gap:12px;align-items:center">
-  {% if query_image %}<img src="{{ query_image }}" style="height:72px;border-radius:6px">{% endif %}
-  <div>
-    <h3 style="margin:0">以图搜图:{{ query_label }}</h3>
-    <p class="muted" style="margin:4px 0 0">共 {{ images|length }} 个相似画面
-      {% if not images %}— 库里还没有已建向量的画面,或这张图确实不像{% endif %}</p>
-  </div>
+{# 本页已迁移到 Vue(方案 A 渐进增强)。数据接口:/api/items、/api/search/images、
+   /api/search/image。旧模板在 git 历史里,回退 = revert 对应提交。 #}
+<div id="search-app" data-query="{{ q }}" data-similar="{{ similar }}">
+  <noscript>检索需要 JavaScript;也可以直接调用 <code>/api/items?q=</code>。</noscript>
 </div>
-{% endif %}
-
-{% if q %}<h3 style="margin:4px 0 12px">“{{ q }}” 的检索结果({{ results|length }}{% if images %} + 画面 {{ images|length }}{% endif %})</h3>{% endif %}
-
-{% if images %}
-<div class="card">
-  <p class="muted" style="margin:0 0 8px">🖼 相关画面(Chinese-CLIP 文字搜画面,按相似度排序)
-    {% if not images_ready %}<span class="tag warn">部分帧未建图像向量,跑 scripts/embed_images.py 可补全</span>{% endif %}
-  </p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px">
-    {% for r in images %}
-    <a href="/items/{{ r.item.id }}" style="text-decoration:none;color:inherit">
-      {% if r.chunk.media_url %}<img src="{{ r.chunk.media_url }}" loading="lazy"
-           style="width:100%;height:96px;object-fit:cover;border-radius:6px;border:1px solid var(--card-border)">{% endif %}
-      <div class="muted" style="font-size:12px;margin-top:4px">
-        #{{ r.item.id }} {{ r.item.title[:16] }}
-        {% if r.chunk.start_ts is not none %}· {{ r.chunk.start_ts|ts }}{% endif %}
-        · {{ '%.2f'|format(r.score) }}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
-{% for r in results %}
-<div class="card">
-  <h3><a href="/items/{{ r.item.id }}">{{ r.item.title }}</a></h3>
-  <div>
-    <span class="tag">{{ r.item.domain }}</span>
-    <span class="tag gray">{{ r.item.type }}</span>
-    <span class="tag gray">第 {{ loop.index }} 条命中</span>
-    {% if r.chunk.start_ts is not none %}
-      <span class="ts">{{ r.chunk.start_ts|ts }}</span>
-      {% if r.chunk.jump %}<a class="jump" href="{{ r.chunk.jump }}" target="_blank">▶ 跳到视频此处</a>{% endif %}
-    {% endif %}
-  </div>
-  {% if r.chunk.content %}<div class="snippet">{{ r.chunk.content[:300] }}</div>{% endif %}
-  {% if r.chunk.media_url %}<img class="thumb" src="{{ r.chunk.media_url }}">{% endif %}
-</div>
-{% else %}
-<div class="card"><h3>无结果</h3><p class="muted">换个关键词试试;混合检索 = 向量语义 + 关键词。</p></div>
-{% endfor %}
+<script type="module" src="/static/dist/search.js"></script>
 {% endblock %}

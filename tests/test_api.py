@@ -41,9 +41,13 @@ def test_capture_selection_end_to_end(env):
     assert items[0]["type"] == "note"
     assert items[0]["status"] == "inbox"
 
+    # 检索页已迁移到 Vue:断言外壳 + 接口数据(方案 A)
     page = client.get("/search", params={"q": "平板卧推"})
     assert page.status_code == 200
-    assert "训练计划贴" in page.text
+    assert 'id="search-app"' in page.text and "/static/dist/search.js" in page.text
+    hits = client.get("/api/items", params={"q": "平板卧推"}).json()["data"]
+    assert any(h["title"] == "训练计划贴" for h in hits["items"])
+    assert hits["items"][0]["hit_chunk"]["content"]
 
     row = app.state.memory.db._conn().execute(
         "SELECT status FROM jobs WHERE id=?", (job_id,)
@@ -75,8 +79,8 @@ def test_capture_product(env):
     assert items[0]["title"] == "优衣库摇粒绒外套"
     assert "199元" in items[0]["attrs_json"]
 
-    page = client.get("/search", params={"q": "优衣库摇粒绒"})
-    assert "优衣库摇粒绒外套" in page.text
+    hits = client.get("/api/items", params={"q": "优衣库摇粒绒"}).json()["data"]
+    assert any(h["title"] == "优衣库摇粒绒外套" for h in hits["items"])
 
 
 def test_capture_video_enqueues_only(env):

@@ -68,17 +68,35 @@ export const inboxApi = {
 export const searchApi = {
   search: ({ q, domain = '', page = 1, pageSize = 12 } = {}) =>
     api.get('/api/items', { q, domain, page, page_size: pageSize }),
-  imageSearch: (file) => {
+  images: ({ q, domain = '' } = {}) => api.get('/api/search/images', { q, domain }),
+  /** 用库里已有的一帧找相似画面(条目详情页的「🔍 找相似画面」) */
+  similar: (itemId, chunkId) =>
+    api.post(`/api/items/${itemId}/similar-image`, { chunk_id: chunkId }),
+  /** 以图搜图:multipart 上传,返回 {items, query_image, query_label} */
+  uploadImage: (file) => {
     const fd = new FormData()
     fd.append('file', file)
-    // 以图搜图仍返回 HTML(结果页含原图回显),这里保留原生表单提交路径
-    return formPost('/search/image', fd)
+    return requestForm('/api/search/image', fd)
   },
 }
 
-function formPost(path, formData) {
-  return fetch(path, { method: 'POST', body: formData }).then(async (r) => {
-    if (!r.ok) throw new ApiError(`http_${r.status}`, await r.text())
-    return r.text()
-  })
+/** multipart 上传也走同一套契约解包 */
+async function requestForm(path, formData) {
+  let resp
+  try {
+    resp = await fetch(path, { method: 'POST', body: formData })
+  } catch {
+    throw new ApiError('network_error', '连不上本地服务(托盘在运行吗?)', 0)
+  }
+  let body
+  try {
+    body = await resp.json()
+  } catch {
+    throw new ApiError('bad_response', `服务返回了非 JSON(${resp.status})`, resp.status)
+  }
+  if (!body.ok) {
+    const err = body.error || {}
+    throw new ApiError(err.code || `http_${resp.status}`, err.message, resp.status)
+  }
+  return body.data
 }

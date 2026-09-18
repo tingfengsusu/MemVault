@@ -359,3 +359,67 @@ SQLite integrity_check / 条目与日志规模 / 向量数==文本块数 / 嵌�
 
 - 单测 6 例(假 CLIP:管线索引、文字搜画面命中、无嵌入器安静降级、面板渲染),全套 **113 passed**;
 - 真机:回填 104 个存量帧后,检索页搜「冰淇淋」出现 #14 的画面墙(见下方记录)。
+
+---
+
+## 2026-09-17 晚间:方案 A 渐进增强(JSON 层 + 待整理箱/检索页迁 Vue)
+
+### 背景与决策
+
+为"用 Vue 做过真实项目"积累可展示证据,同时不动日常在用工具的稳定性。
+备选两种改造方式(见 `MemVault前端改造设计-方案AB.md`),选了**方案 A 渐进增强**,
+并做两处调整:①**先切待整理箱再切检索页**(交互密度更高);②**接口一次铺全**
+(读接口全给,页面只迁两页),这样停在 A 也不会浪费 B 的地基。
+
+### 第 0 步:JSON API 层(只加不改)
+
+`memvault/server/api.py`(APIRouter,prefix=/api),统一契约:
+
+```json
+{"ok": true,  "data": {...}, "error": null}
+{"ok": false, "data": null,  "error": {"code": "...", "message": "..."}}
+```
+
+- **错误映射只对 `/api` 路径生效**:页面路由仍是 FastAPI 原生形状(双轨并存,有回归用例守着);
+- 端点:`/api/items`(检索或过滤分页)、`/api/items/{id}`、`POST /api/items/{id}/status|classify|reanalyze`、
+  `POST /api/items/{id}/similar-image`、`/api/inbox`(带按领域分组的分类树)、`POST /api/inbox/batch`
+  (filed/archived/auto/assign)、`/api/categories`、`/api/jobs`、`/api/sources`、`/api/stats`、
+  `/api/settings`(**密钥只回显是否已配置**)、`/api/search/images`、`POST /api/search/image`;
+- 视图整形集中在 `Serializer`(解析 attrs/media_paths、补缩略图 URL 与时间戳标签)。
+
+### 第 1-3 步:前端工程与两页迁移
+
+- `web/`(Vue 3 + Vite,node v24.18 / npm 11.16 本机已具备,npm 走淘宝镜像):
+  `vite.config.js` 多入口 + `base=/static/dist/`,**构建产物直接落到 `memvault/server/static/dist/`**
+  (托盘 StaticFiles 原样托管,不需要额外部署);dev 时把 `/api`、`/media` 代理到 8765。
+- `src/api/client.js`:一次实现契约解包与错误归一(ApiError 带 code),组件不拼 URL。
+- `InboxView.vue`:领域筛选 + 全选 + 批量(已归类/归档/交给AI,含二次确认)+ 单条(归入分类/已归类/
+  归档/重新分析)+ 缩略图 + 提示条与 loading 态。
+- `SearchView.vue`:检索框 + 领域下拉 + 分页 + 文本命中(带命中片段/时间戳/B站跳转)+
+  「🖼 相关画面」墙 + 以图搜图(选择文件或拖拽)+ 从条目页跳来的"找相似画面"。
+- 两页模板变成挂载点(`#inbox-app` / `#search-app` + `<script type=module>`);
+  **旧模板留在 git 历史里,回退 = revert 对应提交**。
+- 样式沿用既有 class(card/tag/chips/snippet/jump/muted/empty),**因此三个主题(theme.css)照旧生效**。
+
+### 工程决定:`dist/` 入库
+
+`.gitignore` 忽略 `web/node_modules/`,但**放行 `memvault/server/static/dist/`**:
+本地工具,提交产物后拉代码即可直接运行,不必人人装 node;
+改了前端源码再 `cd web && npm install && npm run build` 重新产出。
+
+### 迁移成本(实测)
+
+| 项 | 结果 |
+|---|---|
+| 页面 HTML 断言改造 | 6 处(inbox 2 / search 2 / 图像检索 3,含合并) |
+| 新增 API 测试 | 10 例(契约形状/分页过滤/命中片段/详情/状态与错误码/待整理箱与批量/分类任务来源设置/双轨并存) |
+| 旧 HTML 图像端点 | `/search/image` 与 `/items/{id}/similar-image` 让位给 JSON 版,条目页改为跳 `/search?similar=item:chunk` |
+| 全套测试 | **129 passed** |
+
+### 真机验证(Playwright 驱动系统 Chrome)
+
+- 待整理箱:卡片/批量条/领域筛选/单条操作全部渲染;点「全部已归类」→ 批量接口 → "已处理 2 条" →
+  接口复核 inbox 归零(测试条目用 `test://ui-smoke` 前缀,验完即清理);
+- 检索页:文本检索出画面墙(#14 命中 8 处)、以图搜图回显查询图并列出相似画面、
+  条目页「找相似画面」跳 `/search?similar=14:1528` 后正常出结果;
+- 控制台无错误(仅浏览器默认请求 `/favicon.ico` 404,与本次无关)。

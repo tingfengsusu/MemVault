@@ -447,3 +447,21 @@ DESIGN §2.2 预留的 `chunk_image` 一直"只写不读"(抽帧入库但没建�
 - 用途:视频"按画面找片段"(纯画面/图表/手势等 OCR 采不到的信息)、商品主图以图找同款
   (§7.2)、PDF 图表检索(§4.3)。
 
+### 13.12 面板前端渐进增强(方案 A,2026-09-17 晚间)
+
+面板原为 Jinja2 服务端渲染 + 表单 POST(9 页 / 17 处 redirect)。改造取**渐进增强**:
+只迁交互最密的两页(待整理箱、检索页),其余 7 页原样;旧路由保留,回退 = revert 提交。
+
+- **JSON 层** `memvault/server/api.py`:统一契约 `{ok,data,error}`;错误映射只对 `/api` 生效
+  (页面路由保持原生形状,双轨并存);读接口一次铺全(items/detail/inbox/categories/jobs/
+  sources/stats/settings),动作接口按需加(status/classify/reanalyze/inbox-batch/图像检索);
+  `Serializer` 集中做视图整形(attrs/media_paths 解析、缩略图 URL、时间戳标签)。
+- **前端工程** `web/`(Vue 3 + Vite):多入口构建,**产物直接落 `memvault/server/static/dist/`**
+  由托盘 StaticFiles 托管;`base=/static/dist/`;dev 代理 `/api`、`/media`。
+  `api/client.js` 一处实现契约解包与错误归一;组件复用既有 class → 三个主题照旧生效。
+- **页面迁移**:`inbox.html` / `search.html` 变成挂载点(数据由 `/api/inbox`、
+  `/api/items`、`/api/search/images`、`POST /api/search/image` 提供);条目页「找相似画面」
+  改为跳 `/search?similar=item:chunk`。
+- **产物入库**:`.gitignore` 放行 `dist/`(本地工具,拉下来即可用),源码改动后
+  `cd web && npm run build` 重新产出。
+

@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import (APIRouter, Body, HTTPException, Request)
+from fastapi import (APIRouter, Body, File, HTTPException, Request, UploadFile)
 from fastapi.exception_handlers import http_exception_handler
 
 logger = logging.getLogger(__name__)
@@ -153,6 +153,17 @@ class Serializer:
             })
         out["chunks"] = chunks
         return out
+
+    def image_hit(self, h: dict) -> dict:
+        c, it = h["chunk"], h["item"]
+        return {
+            "score": h["score"],
+            "chunk_id": c["id"],
+            "start_ts": c.get("start_ts"),
+            "media_url": _media_url(self.cfg, c.get("media_path")),
+            "item": {"id": it["id"], "title": it["title"],
+                     "domain": it["domain"], "type": it["type"]},
+        }
 
     def category(self, c: dict) -> dict:
         return {
@@ -318,6 +329,92 @@ def build_router(memory, cfg: dict) -> APIRouter:
                 memory.db.enqueue("auto_process", {"item_id": iid})
         logger.info("批量处理 %s: %d 条(domain=%s)", action, len(targets), domain)
         return ok({"action": action, "affected": len(targets), "ids": targets})
+
+    @api.get("/search/images")
+    def search_images(q: str = "", domain: str = "", top_k: int = 8):
+        """文字搜画面(Chinese-CLIP);未装权重时返回空列表而非报错。"""
+        if not q.strip():
+            return ok({"items": [], "enabled": memory.image_embedder is not None})
+        hits = memory.search_images(q, domain=domain or None,
+                                    top_k=max(1, min(24, top_k)))
+        return ok({"items": [ser.image_hit(h) for h in hits],
+                   "enabled": memory.image_embedder is not None, "query": q})
+
+    @api.post("/search/image")
+    async def search_by_image(request: Request, file: UploadFile = File(...),
+                              top_k: int = 12):
+        """以图搜图(JSON 版):上传一张图,返回相似画面列表(含查询图回显地址)。"""
+        data = await file.read()
+        if not (file.filename or "").strip() or not data:
+            fail("empty_file", "没有选择图片或图片为空", 422)
+        if len(data) > 8 * 1024 * 1024:
+            fail("too_large", "图片太大(限 8MB)", 413)
+        ib = memory.image_embedder
+        if ib is None:
+            fail("image_search_disabled", "图像检索未启用:需要 cn-clip 与权重", 503)
+        from memvault.config import media_dir
+
+        upload_dir = media_dir(cfg) / "_queries"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(file.filename).suffix.lower()
+        if suffix not in (".jpg", ".jpeg", ".png", ".webp", ".bmp"):
+            suffix = ".jpg"
+        from datetime import datetime
+
+        dest = upload_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}"
+        dest.write_bytes(data)
+        try:
+            vec = ib.encode_image(str(dest))
+            hits = memory.vs.query_image(vec, k=max(1, min(24, top_k)))
+        except Exception as e:  # noqa: BLE001 — 单次失败不崩面板
+            logger.warning("以图搜图失败:%s", e)
+            fail("image_encode_failed", f"以图搜图失败:{e}", 500)
+        chunks = {c["id"]: c for c in memory.db.get_chunks(
+            [h["chunk_id"] for h in hits])}
+        items = []
+        for h in hits:
+            c = chunks.get(h["chunk_id"])
+            if c is None:
+                continue
+            it = memory.db.get_items([c["item_id"]]).get(c["item_id"])
+            if it is None:
+                continue
+            items.append(ser.image_hit({"score": round(
+                1.0 - float(h.get("distance", 1.0)), 4), "chunk": c, "item": it}))
+        return ok({"items": items,
+                   "query_image": _media_url(cfg, str(dest)),
+                   "query_label": file.filename})
+
+    @api.post("/items/{item_id}/similar-image")
+    def item_similar_image(request: Request, item_id: int,
+                           chunk_id: int = Body(..., embed=True)):
+        """用库里已有的某帧找相似画面(条目详情页「🔍 找相似画面」)。"""
+        it = memory.get_item(item_id)
+        if not it:
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        chunk = next((c for c in it.get("chunks", [])
+                      if c["id"] == chunk_id and c.get("media_path")), None)
+        if chunk is None:
+            fail("not_found", "该条目下没有这个画面块", 404)
+        ib = memory.image_embedder
+        if ib is None:
+            fail("image_search_disabled", "图像检索未启用:需要 cn-clip 与权重", 503)
+        vec = ib.encode_image(chunk["media_path"])
+        hits = memory.vs.query_image(vec, k=12)
+        chunks = {c["id"]: c for c in memory.db.get_chunks(
+            [h["chunk_id"] for h in hits])}
+        items = []
+        for h in hits:
+            c = chunks.get(h["chunk_id"])
+            if c is None:
+                continue
+            row = memory.db.get_items([c["item_id"]]).get(c["item_id"])
+            if row is None:
+                continue
+            items.append(ser.image_hit({"score": round(
+                1.0 - float(h.get("distance", 1.0)), 4), "chunk": c, "item": row}))
+        return ok({"items": items, "query_image": _media_url(cfg, chunk["media_path"]),
+                   "query_label": f"#{item_id} 的画面"})
 
     @api.get("/categories")
     def categories(domain: str = ""):
