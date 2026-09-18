@@ -182,18 +182,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/")
     def index(request: Request, domain: str = "", page: int = 1):
-        page = max(1, page)
-        stats = memory.db.stats()
-        items = memory.db.list_items(domain=domain or None,
-                                     limit=50, offset=(page - 1) * 50)
-        md = media_dir(cfg)
-        related_map = memory.db.links_for_items([it["id"] for it in items])
-        for it in items:
-            it["related"] = related_map.get(it["id"], [])
-            it["thumb"] = thumb_url(it, md)
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/stats 与
+        # /api/items?with_related=1 提供;domain 透传进挂载点。
         return templates.TemplateResponse(request, "index.html",
-            ctx(request, stats=stats, items=items, domain=domain, page=page,
-                domain_counts=memory.db.items_by_domain()))
+            ctx(request, domain=domain))
 
     @app.get("/search")
     def search(request: Request, q: str = "", similar: str = ""):
@@ -245,30 +237,13 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/items/{item_id}")
     def item_detail(request: Request, item_id: int):
+        # 本页已迁移到 Vue(方案 A):只渲染外壳(标题留给 <title>),
+        # 数据由 /api/items/{id} 提供。
         item = memory.get_item(item_id)
         if not item:
             raise HTTPException(404)
-        cat = memory.db.get_category(item["category_id"]) \
-            if item.get("category_id") else None
-        related = memory.db.links_for_items([item_id]).get(item_id, [])
-        md = media_dir(cfg)
-        for c in item["chunks"]:
-            c["jump"] = bili_jump(item["source_ref"], c.get("start_ts"))
-            if c.get("media_path"):
-                try:
-                    c["media_url"] = "/media/" + str(
-                        Path(c["media_path"]).relative_to(md)
-                    ).replace("\\", "/")
-                except ValueError:
-                    c["media_url"] = None
-        raw = json.loads(item.get("attrs_json") or "{}") or {}
-        up_mid, up_name = raw.get("up_mid"), raw.get("up")
-        up_rule = memory.db.up_category(up_mid) if up_mid else None
         return templates.TemplateResponse(request, "item.html",
-            ctx(request, item=item, category_name=cat["name"] if cat else None,
-                related=related, all_categories=memory.db.categories(),
-                up_mid=up_mid, up_name=up_name, up_rule=up_rule,
-                image_search_on=memory.image_embedder is not None))
+            ctx(request, item=item))
 
     @app.get("/jobs")
     def jobs(request: Request):
@@ -297,17 +272,9 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     # ── 分类管理(M3)────────────────────────────────────────────────
     @app.get("/categories")
     def categories_page(request: Request):
-        from collections import defaultdict
-
-        groups = defaultdict(list)
-        for c in memory.db.categories():
-            c["item_count"] = memory.db.count_items(category_id=c["id"])
-            groups[c["domain"]].append(c)
-        # 领域候选:已有分类的领域 + 条目实际用到的领域(输入框给下拉建议,仍可手填新领域)
-        domains = sorted(set(groups) | {d["domain"] for d in memory.db.items_by_domain()})
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/categories 提供。
         return templates.TemplateResponse(request, "categories.html",
-            ctx(request, groups=dict(groups), domains=domains,
-                up_rules=memory.db.up_rules()))
+            ctx(request))
 
     @app.post("/categories/add")
     def categories_add(domain: str = Form(...), name: str = Form(...)):

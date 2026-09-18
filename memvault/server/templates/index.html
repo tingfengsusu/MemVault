@@ -1,54 +1,9 @@
 {% extends "base.html" %}
 {% block title %}库 · MemVault{% endblock %}
 {% block content %}
-{% set icons = {'video':'🎬','product':'🛒','doc':'📄','note':'📝','image':'🖼','file':'📎'} %}
-<div class="chips">
-  <span>条目 <b>{{ stats['items'] }}</b></span>
-  <span>语义块 <b>{{ stats['chunks'] }}</b></span>
-  <span>待整理 <b>{{ stats['inbox'] }}</b></span>
-  <span>日志 <b>{{ stats['logs'] }}</b></span>
+{# 本页已迁移到 Vue(方案 A):数据来自 /api/stats 与 /api/items?with_related=1。 #}
+<div id="home-app" data-domain="{{ domain }}">
+  <noscript>库浏览需要 JavaScript;也可以直接调用 <code>/api/items</code>。</noscript>
 </div>
-<div class="chips">
-  <span>领域:</span>
-  <a class="tag {{ '' if not domain else 'gray' }}" href="/">全部</a>
-  {% for d in domain_counts %}
-  <a class="tag {{ 'gray' if domain != d.domain else '' }}" href="/?domain={{ d.domain }}">{{ d.domain }}({{ d.c }})</a>
-  {% endfor %}
-</div>
-
-<div class="grid">
-  {% for it in items %}
-  <div class="card tile">
-    {% if it.thumb %}
-    <a href="/items/{{ it.id }}"><img class="thumb-top" src="{{ it.thumb }}" loading="lazy" alt=""></a>
-    {% endif %}
-    <div class="tile-body">
-      <h3><span>{{ icons.get(it.type, '📄') }}</span><a class="stretch" href="/items/{{ it.id }}">{{ it.title }}</a></h3>
-      <div class="meta">
-        <span class="dot dot-{{ it.domain }}" title="{{ it.domain }}"></span>
-        <span class="muted">{{ it.domain }}</span>
-        <span class="tag gray">{{ it.type }}</span>
-        {% if it.chunk_count %}<span class="muted">{{ it.chunk_count }} 个语义块</span>{% endif %}
-        {% if it.category_id %}<span class="tag">已分类</span>{% endif %}
-      </div>
-      {% if it.content_text %}<div class="snippet">{{ it.content_text[:150] }}</div>{% endif %}
-      {% if it.related %}
-      <div class="rel muted">🔗 相关:
-        {% for r in it.related %}<a href="/items/{{ r.id }}">{{ r.title[:20] }}</a>{{ ' · ' if not loop.last }}{% endfor %}
-      </div>
-      {% endif %}
-    </div>
-  </div>
-  {% else %}
-  <div class="card empty" style="grid-column:1/-1"><h3>库还是空的</h3>
-    <p class="muted">用浏览器插件采集网页/商品/视频,或按全局热键 <b>Ctrl+Alt+B</b> 采集剪贴板内容(支持文件)。</p>
-  </div>
-  {% endfor %}
-</div>
-
-<div class="chips" style="justify-content:center">
-  {% if page > 1 %}<a class="jump" href="/?page={{ page - 1 }}{% if domain %}&domain={{ domain }}{% endif %}">← 上一页</a>{% endif %}
-  <span class="muted">第 {{ page }} 页</span>
-  {% if items|length == 50 %}<a class="jump" href="/?page={{ page + 1 }}{% if domain %}&domain={{ domain }}{% endif %}">下一页 →</a>{% endif %}
-</div>
+<script type="module" src="/static/dist/home.js"></script>
 {% endblock %}

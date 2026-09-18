@@ -132,5 +132,12 @@ def test_item_cart_endpoint(tmp_path, monkeypatch):
         assert client.post("/items/99999/cart",
                            follow_redirects=False).status_code == 404
 
-        html = client.get(f"/items/{item_id}").text
-        assert "加入京东购物车" in html
+        # 详情页迁到 Vue 后走 JSON 端点;页面只保留外壳
+        r2 = client.post(f"/api/items/{item_id}/cart")
+        assert r2.json()["ok"] is True
+        n = app.state.memory.db._conn().execute(
+            "SELECT COUNT(*) FROM jobs WHERE type='jd_cart'").fetchone()[0]
+        assert n == 2                      # 旧端点 + 新端点各入队一次
+        assert client.post("/api/items/99999/cart").status_code == 404
+        page = client.get(f"/items/{item_id}").text
+        assert 'id="item-app"' in page

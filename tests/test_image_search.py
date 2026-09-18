@@ -246,9 +246,10 @@ def test_item_similar_image_from_stored_frame(tmp_path, monkeypatch):
         chunk_id = m.add_image_chunk(item, str(frame), start_ts=2.0, seq=0,
                                      image_embedder=ib)
 
-        html = client.get(f"/items/{item}").text
-        assert "找相似画面" in html
-        assert f"/search?similar={item}:{chunk_id}" in html      # 跳 Vue 检索页
+        # 详情页迁 Vue:画面块经接口暴露 media_url(组件据此渲染找相似入口)
+        detail = client.get(f"/api/items/{item}").json()["data"]
+        img = next(c for c in detail["chunks"] if c["modality"] == "image")
+        assert img["media_url"].endswith("a.jpg")
 
         r = client.post(f"/api/items/{item}/similar-image",
                         json={"chunk_id": chunk_id})

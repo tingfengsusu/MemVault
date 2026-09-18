@@ -416,6 +416,30 @@ SQLite integrity_check / 条目与日志规模 / 向量数==文本块数 / 嵌�
 | 旧 HTML 图像端点 | `/search/image` 与 `/items/{id}/similar-image` 让位给 JSON 版,条目页改为跳 `/search?similar=item:chunk` |
 | 全套测试 | **129 passed** |
 
+### 第 4 步:条目详情页迁移(item 详情)
+
+交互最密的一页:AI 提取表 / 原始属性 / 语义块时间轴(带 B站跳转)/ 相关条目 /
+UP主 绑定(下拉 + 解绑)/ 重新分析 / 加购 / 以画面找相似 / 状态流转。
+
+- API 补:`POST /api/items/{id}/cart`、`POST /api/items/{id}/bind-up`、
+  `POST /api/up/{mid}/unbind`;chunk 序列化补 `jump`(B站时间戳链接,与页面路由同一实现);
+- `ItemView.vue` + `item.js` 入口;`item.html` 变挂载点,`/items/{id}` 路由只渲染外壳;
+- 测试迁移 **7 处**断言(detail 跳转/加购按钮/重新分析/UP 绑定/相关条目/分类名/找相似入口),
+  统一改成"外壳 + 接口"断言,并顺手补了 `unbind` 的双轨用例;全套 **129 passed**;
+- 真机:AI 提取表(真实键"关键食材与工具")、原始属性里的 UP主、语义块「▶ 跳到视频此处」、
+  UP 绑定入口、重新分析按钮、找相似入口全部渲染;控制台仅 favicon 404。
+
+### 第 5-6 步:库首页与分类管理页迁移
+
+- **库首页** `HomeView.vue`:统计条(条目/语义块/待整理/日志/待建向量)+ 领域 chips +
+  卡片网格(缩略图、摘要、领域色点、相关条目)+ 分页。`/api/items` 增 `with_related=1`
+  (卡片一次批量带出相关条目)。真机:12 张卡片、5 张缩略图、切领域后重新加载 ✓。
+- **分类管理页** `CategoriesView.vue`:新增分类(领域 datalist 建议取自接口 `domains`)+
+  分类树(待确认→一键采纳、🗑 删除含二次确认与影响提示)+ UP主规则列表与解除。
+  API 补 `POST /api/categories`、`POST /api/categories/{id}/confirm|delete`。
+  真机:添加→列表出现→删除→接口复核消失 ✓(提示条里会带分类名,属正常)。
+- 测试迁移:首页 2 处、分类页 4 处(含双轨用例的标记适配)→ 外壳 + 接口断言;全套 **129 passed**。
+
 ### 真机验证(Playwright 驱动系统 Chrome)
 
 - 待整理箱:卡片/批量条/领域筛选/单条操作全部渲染;点「全部已归类」→ 批量接口 → "已处理 2 条" →
@@ -423,3 +447,13 @@ SQLite integrity_check / 条目与日志规模 / 向量数==文本块数 / 嵌�
 - 检索页:文本检索出画面墙(#14 命中 8 处)、以图搜图回显查询图并列出相似画面、
   条目页「找相似画面」跳 `/search?similar=14:1528` 后正常出结果;
 - 控制台无错误(仅浏览器默认请求 `/favicon.ico` 404,与本次无关)。
+
+### 迁移进度(9 页)
+
+| 已迁 Vue | 仍是 Jinja2 |
+|---|---|
+| 库首页 `/`、待整理箱 `/inbox`、检索 `/search`、条目详情 `/items/{id}`、分类管理 `/categories` | 设置 `/settings`、任务 `/jobs`、订阅 `/sources`、聊天 `/chat` |
+
+未迁的 4 页交互都较轻(jobs/sources 基本只读,settings 是写配置文件的表单,
+chat 是 LLM 对话且已有"思考中"占位)。继续迁的话按此顺序即可,每页固定动作:
+加 API(若缺)→ 写 view → 模板变挂载点 → 页面断言改接口断言 → Playwright 冒烟。

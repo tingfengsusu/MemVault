@@ -1,66 +1,9 @@
 {% extends "base.html" %}
 {% block title %}分类 · MemVault{% endblock %}
 {% block content %}
-<h3 style="margin:4px 0 12px">分类树</h3>
-<div class="card">
-  <form method="post" action="/categories/add" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <input name="domain" list="domain-options" placeholder="领域,如 fitness/shopping" required
-           style="padding:6px 10px;border:1px solid var(--input-border);border-radius:6px;width:200px">
-    <datalist id="domain-options">
-      {% for d in domains %}<option value="{{ d }}"></option>{% endfor %}
-    </datalist>
-    <input name="name" placeholder="新分类名称" required
-           style="padding:6px 10px;border:1px solid var(--input-border);border-radius:6px;width:200px">
-    <button>添加分类</button>
-    <span class="muted">LLM 自动分类只能从这里"选题";"待确认"的提议点确认后生效。</span>
-  </form>
+{# 本页已迁移到 Vue(方案 A):数据与动作走 /api/categories*。 #}
+<div id="categories-app">
+  <noscript>分类管理需要 JavaScript;也可以直接调用 <code>/api/categories</code>。</noscript>
 </div>
-{% for domain, cats in groups.items() %}
-<div class="card">
-  <h3><span class="tag">{{ domain }}</span>
-      <span class="muted" style="font-weight:400">{{ cats|length }} 个分类 · 共 {{ cats | sum(attribute='item_count') }} 条目</span></h3>
-  {% for c in cats %}
-  <div style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px dashed var(--card-border)">
-    <span style="min-width:140px">{{ c.name }}</span>
-    <span class="tag gray">{{ c.item_count }} 条目</span>
-    {% if c.status == 'proposed' %}
-      <span class="tag warn">待确认(LLM 提议)</span>
-      <form class="inline" method="post" action="/categories/{{ c.id }}/confirm">
-        <button>✔ 确认采纳</button>
-      </form>
-    {% else %}
-      <span class="tag gray">使用中</span>
-    {% endif %}
-    <form class="inline" method="post" action="/categories/{{ c.id }}/delete"
-          onsubmit="return confirm('删除分类「{{ c.name }}」?\n{% if c.item_count %}该分类下 {{ c.item_count }} 个条目会退回待整理箱。{% endif %}该分类的专属提示词与 UP主规则也会一并删除。')">
-      <button class="ghost">🗑 删除</button>
-    </form>
-  </div>
-  {% endfor %}
-</div>
-{% else %}
-<div class="card"><h3>还没有分类</h3>
-  <p class="muted">先建几个分类(如 fitness 下的"胸/背/腿"),LLM 自动分类才有"选择题"可做。</p>
-</div>
-{% endfor %}
-
-{% if up_rules %}
-<div class="card">
-  <h3>UP主 → 分类 规则<span class="muted" style="font-weight:400">
-    这些 UP 的新视频直接归档,不再走 LLM 分类</span></h3>
-  {% for r in up_rules %}
-  <div style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px dashed var(--card-border)">
-    <span style="min-width:180px">{{ r.up_name or ('mid ' ~ r.up_mid) }}</span>
-    <span class="tag gray">mid {{ r.up_mid }}</span>
-    <span class="tag">{{ r.category_domain }} / {{ r.category_name }}</span>
-    <form class="inline" method="post" action="/up/{{ r.up_mid }}/unbind">
-      <input type="hidden" name="back" value="categories">
-      <button class="ghost">解除</button>
-    </form>
-  </div>
-  {% endfor %}
-  <p class="muted" style="margin:8px 0 0">
-    绑定入口在视频条目的详情页(「📌 该 UP 的视频都归此分类」)。</p>
-</div>
-{% endif %}
+<script type="module" src="/static/dist/categories.js"></script>
 {% endblock %}
