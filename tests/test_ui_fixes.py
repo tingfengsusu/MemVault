@@ -82,13 +82,33 @@ def test_settings_save_and_apply(client_env):
     assert app.state.llm.model == "my-model"
     assert app.state.llm.api_key == "sk-test-1234567890abc"
 
+    # 设置页迁到 Vue:数据走接口(旧表单端点仍可用,上面刚验过)
     page = client.get("/settings")
-    assert page.status_code == 200 and "my-model" in page.text
+    assert page.status_code == 200 and 'id="settings-app"' in page.text
+    data = client.get("/api/settings").json()["data"]
+    assert data["llm"]["model"] == "my-model"
+
+    # JSON 保存端点(空 api_key = 不改动现有 key)
+    r2 = client.post("/api/settings", json={
+        "backend": "api", "base_url": "https://api.example.com/v1",
+        "model": "model-v2", "api_key": "", "classify_confidence": 0.6})
+    assert r2.json()["data"]["model"] == "model-v2"
+    assert r2.json()["data"]["api_key_updated"] is False
+    assert r2.json()["data"]["api_key_set"] is True      # 之前那段 key 还在
+    assert app.state.llm.model == "model-v2"             # 即时生效
+    saved2 = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert saved2["llm"]["model"] == "model-v2"
+    assert saved2["llm"]["classify_confidence"] == 0.6
 
 
 def test_settings_masks_api_key(client_env):
+    """密钥只回显"是否已配置":接口也绝不返回明文。"""
     client, app, *_ = client_env
     app.state.llm.api_key = "sk-abcdef1234567890xyz"
     page = client.get("/settings")
-    assert "sk-abc" in page.text
-    assert "1234567890xyz" not in page.text  # 完整 key 不回显
+    assert page.status_code == 200
+    assert "sk-abcdef1234567890xyz" not in page.text      # 页面外壳不含密钥
+    data = client.get("/api/settings").json()["data"]
+    assert "api_key" not in data["llm"]                   # 接口不含明文字段
+    assert data["llm"]["api_key_set"] is True
+    assert "sk-abc" not in str(data)                      # 任何字段都不泄露前缀

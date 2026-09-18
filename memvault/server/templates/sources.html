@@ -1,43 +1,9 @@
 {% extends "base.html" %}
 {% block title %}订阅 · MemVault{% endblock %}
 {% block content %}
-<h3 style="margin:4px 0 12px">订阅源</h3>
-<div class="card">
-  <form method="post" action="/sources/add" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <select name="kind" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px">
-      <option value="bili_up">B站 UP主</option>
-    </select>
-    <input name="target" placeholder="UP主 UID 或 space.bilibili.com/xxx" required
-           style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;width:240px">
-    <input name="domain" placeholder="入库领域,如 fitness" value="general"
-           style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;width:140px">
-    <button>添加订阅</button>
-    <span class="muted">首次检查只登记历史;此后每 30 分钟自动拉新。B站风控限制,需在
-    <b>config.yaml</b> 的 <b>bili.cookies_path</b> 配置导出的 cookies.txt(登录态)。</span>
-  </form>
+{# 本页已迁移到 Vue(方案 A):数据与动作走 /api/sources*。 #}
+<div id="sources-app">
+  <noscript>订阅管理需要 JavaScript;也可以直接调用 <code>/api/sources</code>。</noscript>
 </div>
-<div class="card">
-  <table>
-    <tr><th>#</th><th>类型</th><th>订阅对象</th><th>领域</th><th>状态</th><th>上次检查</th><th></th></tr>
-    {% for s in sources %}
-    <tr>
-      <td>{{ s.id }}</td>
-      <td>{{ s.kind }}</td>
-      <td>{{ s.label or s.target }} <span class="muted">UID {{ s.target }}</span></td>
-      <td><span class="tag">{{ s.domain or 'general' }}</span></td>
-      <td>{% if s.enabled %}<span class="tag" style="background:#ecfdf5;color:#047857">启用</span>
-          {% else %}<span class="tag gray">停用</span>{% endif %}</td>
-      <td class="muted">{{ s.last_checked or '从未' }}</td>
-      <td>
-        <form class="inline" method="post" action="/sources/{{ s.id }}/check"><button class="ghost">立即检查</button></form>
-        <form class="inline" method="post" action="/sources/{{ s.id }}/toggle">
-          <button class="ghost">{{ '停用' if s.enabled else '启用' }}</button>
-        </form>
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7" class="muted">还没有订阅源。添加 UP主 后,新视频会自动采集入库并走自动分类。</td></tr>
-    {% endfor %}
-  </table>
-</div>
+<script type="module" src="/static/dist/sources.js"></script>
 {% endblock %}
