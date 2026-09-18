@@ -531,6 +531,30 @@ def build_router(memory, cfg: dict) -> APIRouter:
                 if not status or j["status"] == status]
         return ok({"items": data, "total": len(data)})
 
+    @api.post("/chat")
+    def chat(app_request: Request, message: str = Body(...),
+             skill: str = Body("general")):
+        """与技能对话(LLM 抽取画像/日志 → 检索个人上下文 → 生成回复)。
+
+        消息本身不落盘,抽取出的画像键值与日志会落盘(见 DESIGN §13.7)。
+        """
+        text = (message or "").strip()
+        if not text:
+            fail("empty_message", "消息不能为空", 422)
+        llm = getattr(app_request.app.state, "llm", None)
+        if llm is None or not getattr(llm, "enabled", False):
+            fail("llm_disabled", "LLM 未配置(设置 DEEPSEEK_API_KEY 后重启)", 503)
+        from memvault.chat import chat_turn
+
+        try:
+            out = chat_turn(memory, llm, text, skill or "general")
+        except ValueError as e:
+            fail("invalid_message", str(e), 422)
+        except Exception as e:  # noqa: BLE001 — 上游 API 异常
+            logger.exception("聊天处理失败")
+            fail("llm_error", f"LLM 调用失败:{str(e)[:200]}", 502)
+        return ok(out)
+
     @api.get("/sources")
     def sources():
         return ok({"items": [ser.source(s) for s in memory.db.watch_sources()]})

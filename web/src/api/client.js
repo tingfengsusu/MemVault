@@ -65,6 +65,10 @@ export const inboxApi = {
   reanalyze: (itemId) => api.post(`/api/items/${itemId}/reanalyze`),
 }
 
+export const chatApi = {
+  send: (message, skill = 'general') => api.post('/api/chat', { message, skill }),
+}
+
 export const settingsApi = {
   save: (payload) => api.post('/api/settings', payload),
   test: () => api.post('/api/settings/test', {}),

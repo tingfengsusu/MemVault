@@ -22,6 +22,7 @@ export default defineConfig({
         jobs: resolve(__dirname, 'src/entries/jobs.js'),
         sources: resolve(__dirname, 'src/entries/sources.js'),
         settings: resolve(__dirname, 'src/entries/settings.js'),
+        chat: resolve(__dirname, 'src/entries/chat.js'),
       },
       output: {
         entryFileNames: '[name].js',

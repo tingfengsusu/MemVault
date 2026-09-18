@@ -101,13 +101,14 @@ v0.1 核心完成:多模态采集(视频/网页/商品/文档)→ 本地记忆�
 - **前端工程** `web/`:改前端后要 `cd web && npm install && npm run build` ——
   **产物直接落 `memvault/server/static/dist/`,已入库**(拉代码即可跑,不必装 node;
   但要改前端源码就得有 node,本机 node v24 / npm 走淘宝镜像)。
-- **已迁五页**:库首页 `/`、待整理箱 `/inbox`、检索 `/search`、条目详情 `/items/{id}`、分类管理 `/categories`
-  (挂载点 `#home-app` / `#inbox-app` / `#search-app` / `#item-app` / `#categories-app`),
+- **9 页全部迁完**:库首页 / 待整理箱 / 检索 / 条目详情 / 分类 / 任务 / 订阅 / 设置 / 聊天
+  (挂载点 `#<page>-app`,入口 `web/src/entries/*.js`,产物 `static/dist/*.js`),
   数据走 `/api/inbox`、`/api/items`、`/api/search/images`。**回退方式 = revert 对应提交**
   (旧模板在 git 历史里)。组件复用既有 class,所以三个主题照旧生效。
-- **待办(方案 A 的剩余部分)**:还剩 4 页未迁(设置 / 任务 / 订阅 / 聊天),都是交互较轻的
-  页面;迁移一页的固定动作 = 加 API(若缺)→ 写 view → 模板变挂载点 → 页面断言改接口断言 →
-  Playwright 冒烟。
+- **迁移已完成**:Jinja2 只剩 `base.html`(导航 + 主题);9 个页面模板都是"挂载点 + script"。
+  今后加页面/改数据:接口放 `memvault/server/api.py`(统一契约 `{ok,data,error}`,
+  错误映射只对 `/api` 生效),视图放 `web/src/views/` 并在 `vite.config.js` 加入口,
+  改完 `cd web && npm run build`。页面断言一律改"外壳 + 接口"断言。
 
 ## 用户明确搁置的一件事(勿擅自开工)
 

@@ -19,14 +19,13 @@ from memvault.config import (DEFAULT_CONFIG_PATH, chroma_dir, db_path,
                              load_config, media_dir)
 from memvault.db import Database
 from memvault.embeddings import get_text_embedder
-from memvault.memory import Memory, fmt_ts
+from memvault.memory import Memory
 from memvault.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 _MAX_UPLOAD_BYTES = 8 * 1024 * 1024   # 以图搜图上传上限
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-templates.env.filters["ts"] = fmt_ts
 
 
 def _from_json_attr(s):
@@ -40,22 +39,6 @@ templates.env.filters["from_json_attr"] = _from_json_attr
 
 BV_RE = re.compile(r"(BV[0-9A-Za-z]{10})")
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
-
-
-def thumb_url(item: dict, media_root) -> str | None:
-    """条目的第一张图片 → /media 可访问 URL(卡片缩略图)。"""
-    try:
-        paths = json.loads(item.get("media_paths") or "[]")
-    except (json.JSONDecodeError, TypeError):
-        return None
-    for p in paths:
-        if Path(p).suffix.lower() in _IMG_EXT:
-            try:
-                return "/media/" + str(
-                    Path(p).relative_to(media_root)).replace("\\", "/")
-            except ValueError:
-                continue
-    return None
 
 
 def bili_jump(source_ref: str | None, start_ts) -> str | None:
@@ -333,21 +316,6 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     @app.get("/chat")
     def chat_page(request: Request):
         return templates.TemplateResponse(request, "chat.html", ctx(request))
-
-    @app.post("/api/chat")
-    def api_chat(req: ChatReq):
-        llm = app.state.llm
-        if not llm.enabled:
-            raise HTTPException(503, "LLM 未配置(设置 DEEPSEEK_API_KEY 后重启)")
-        from memvault.chat import chat_turn
-
-        try:
-            return chat_turn(memory, llm, req.message, req.skill or "general")
-        except ValueError as e:
-            raise HTTPException(422, str(e))
-        except Exception as e:  # noqa: BLE001 — 上游 API 异常转 502
-            logger.exception("聊天处理失败")
-            raise HTTPException(502, f"LLM 调用失败: {e}")
 
     # ── 订阅管理(M3b)────────────────────────────────────────────────
     @app.get("/sources")

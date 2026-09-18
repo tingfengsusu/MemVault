@@ -192,6 +192,7 @@ def test_panel_chat_llm_disabled(api):
 
 
 def test_panel_chat_with_stub(api):
+    """聊天接口迁到统一契约:{ok,data,error};消息体在 data 里。"""
     client, app, _ = api
     from tests.test_m3b import StubLLM
 
@@ -200,7 +201,13 @@ def test_panel_chat_with_stub(api):
         text_reply="收到!")
     r = client.post("/api/chat", json={"message": "在吗", "skill": "general"})
     assert r.status_code == 200
-    assert r.json()["reply"] == "收到!"
+    body = r.json()
+    assert body["ok"] is True and body["data"]["reply"] == "收到!"
+
+    # 空消息 → 统一失败契约(而不是 500)
+    bad = client.post("/api/chat", json={"message": "   ", "skill": "general"})
+    assert bad.status_code == 422
+    assert bad.json()["error"]["code"] == "empty_message"
 
 
 def test_get_up_latest_fallback(monkeypatch):
