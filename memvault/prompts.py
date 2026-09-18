@@ -21,7 +21,7 @@ ROUTER_PROMPT = """你是个人记忆库的分类路由器。把条目分到用�
 输出 JSON:
 {"category_id": 整数或null, "new_category": {"name": "..."}或null, "confidence": 0到1的小数, "reason": "..."}"""
 
-EXTRACT_PROMPT = """你是信息提取器。为分类「{category}」的条目提取结构化属性。
+EXTRACT_PROMPT_V1 = """你是信息提取器。为分类「{category}」的条目提取结构化属性。
 
 步骤:
 1. 阅读条目内容,归纳出 3~6 个对该类条目最有价值的属性名(中文,例如:主题/核心内容/关键要点/方法/对象/风格)。
@@ -33,6 +33,32 @@ EXTRACT_PROMPT = """你是信息提取器。为分类「{category}」的条目�
 - 禁止输出与属性无关的键(例如 type、response_format)。
 - 内容可能来自视频(语音转写/画面文字)或网页;语音转写可能是不连贯的短句,
   请综合全文归纳要点,不要因为语句零碎而拒绝提取。"""
+
+# 相对 v1 的改进(用户实测 #14 反馈):①按内容形态给属性名的引导 ②并列对象必须逐个展开
+# ③数值/步骤保留原样 ④广告内容按用户设置处理(占位符由运行期注入)
+EXTRACT_PROMPT = """你是信息提取器。为分类「{category}」的条目提取结构化属性。
+
+步骤:
+1. 先判断内容形态,再定属性名(4~8 个,中文):
+   - 教学/做法/教程类(做菜、健身动作、软件操作、手工…):按"对象 + 步骤"拆,
+     例如 食材与用量 / 制作步骤 / 时间与温度 / 关键技巧 / 常见失败原因 / 适用对象;
+   - 评测/资讯/解读类:例如 核心结论 / 关键数据 / 论据与案例 / 影响与后续 / 局限;
+   - 商品类:例如 价格与规格 / 卖点 / 适用场景 / 与同类差异。
+2. 逐条写具体信息。凡是内容里出现的**数字、比例、时长、温度、型号、价格、名称、
+   顺序**都要保留原样(例:"400ml 牛奶 + 2 勺糖,冷冻 20 分钟"),不要概括成
+   "若干""适量""多个步骤"。
+3. 内容里有**多个并列对象**时(多道菜 / 多款商品 / 多个方法 / 多期内容),必须逐个
+   展开,每个对象单独列出它自己的关键信息与步骤,不要只写一句共同点。
+   - 例:一段"12 个冰淇淋做法"的视频 → 属性里要能看到每款的做法差异
+     (用了什么水果/配料、怎么处理、冻多久),而不是只说"多种创意做法"。
+
+规则:
+- 只输出一个 JSON 对象:键为属性名,值为字符串或 null。
+- 内容中没有的信息输出 null,禁止编造;信息确实琐碎时宁可少写属性,也不要空泛填充。
+- 禁止输出与属性无关的键(例如 type、response_format)。
+- 内容可能来自视频(语音转写/画面文字)或网页;语音转写与 OCR 文字可能零碎、
+  有错别字或串行,请综合全文归纳,不要因为语句零碎而拒绝提取。
+- {ads_policy}"""
 
 
 class PromptStore:
@@ -87,9 +113,20 @@ class PromptStore:
     def ensure_seed(self):
         if not self.get_active("router", "classify"):
             self.new_version("router", "classify", ROUTER_PROMPT)
-        if not self.get_active("extract", "extract", None):
-            self.new_version("extract", "extract",
-                             EXTRACT_PROMPT.replace("{category}", "通用"))
+        active = self.get_active("extract", "extract", None)
+        if active is None:
+            # 保留 {category} / {ads_policy} 占位符,运行期再替换
+            self.new_version("extract", "extract", EXTRACT_PROMPT)
+            return
+        # 出厂提示词跟随升级:只有当 active 仍是"未被改写的出厂版本"时才替换
+        # (用户/LLM 改写过的版本一律保留,符合"提示词可进化 + 可回滚"的设计)
+        cur = (active.get("content") or "").strip()
+        factory = {EXTRACT_PROMPT_V1.strip(),
+                   EXTRACT_PROMPT_V1.replace("{category}", "通用").strip()}
+        if cur in factory:
+            self.new_version("extract", "extract", EXTRACT_PROMPT,
+                             origin="upgrade")
+            logger.info("出厂提取提示词升级(旧版已退役,可回滚)")
 
     # ── 质疑(feedback)──────────────────────────────────────────────
     def add_feedback(self, memory, prompt_id: int, item_id: int | None,

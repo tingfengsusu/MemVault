@@ -634,7 +634,8 @@ def build_router(memory, cfg: dict) -> APIRouter:
     def save_settings(app_request: Request, backend: str = Body("api"),
                       base_url: str = Body(...), model: str = Body(...),
                       api_key: str = Body(""),
-                      classify_confidence: float = Body(0.8)):
+                      classify_confidence: float = Body(0.8),
+                      ads_policy: str = Body("ignore")):
         """保存 LLM 设置(写 config.yaml + .env 并即时生效)。
 
         **密钥只写不回读**:api_key 传空字符串表示"不改动现有 key"。
@@ -653,6 +654,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
         sec["base_url"] = (base_url or "").strip()
         sec["model"] = (model or "").strip()
         sec["classify_confidence"] = float(classify_confidence)
+        sec["ads_policy"] = ads_policy if ads_policy in ("ignore", "mention") else "ignore"
         p.write_text(_yaml.safe_dump(raw, allow_unicode=True, sort_keys=False),
                      encoding="utf-8")
 
@@ -660,6 +662,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
         cfg["llm"]["base_url"] = sec["base_url"]
         cfg["llm"]["model"] = sec["model"]
         cfg["llm"]["classify_confidence"] = sec["classify_confidence"]
+        cfg["llm"]["ads_policy"] = sec["ads_policy"]
         key_updated = bool((api_key or "").strip())
         if key_updated:
             env = llm_mod.PROJECT_ROOT / ".env"

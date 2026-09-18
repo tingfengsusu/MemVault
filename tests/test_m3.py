@@ -593,3 +593,51 @@ def test_delete_category_missing_and_panel(api_client):
     cat2 = app.state.memory.db.add_category("general", "再删一次")
     assert client.post(f"/api/categories/{cat2}/delete").json()["data"]["name"] == "再删一次"
     assert app.state.memory.db.get_category(cat2) is None
+
+
+def test_extract_ads_policy_in_prompt(memory, pstore, cfg):
+    """广告策略:默认忽略;设置成 mention 时提示词里换成"单独一条属性"。"""
+    from memvault.classify import ads_policy_text, extract_item
+
+    cat_id = memory.db.add_category("general", "美食教程")
+    item_id = memory.add_item("general", "video", "某视频",
+                              content_text="演示:一段带广告的做法视频",
+                              category_id=cat_id)
+    captured = {}
+
+    class RecLLM:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            captured["system"] = system
+            return {"主题": "演示"}
+
+    pstore.ensure_seed()
+    extract_item(memory, RecLLM(), pstore, item_id, cfg)          # cfg 里默认 ignore
+    assert "广告与推广内容一律忽略" in captured["system"]
+    assert "{ads_policy}" not in captured["system"]               # 占位符必须被替换
+    assert "{category}" not in captured["system"]
+
+    cfg2 = {**cfg, "llm": {**cfg["llm"], "ads_policy": "mention"}}
+    assert "单独归入一条属性" in ads_policy_text(cfg2)
+    extract_item(memory, RecLLM(), pstore, item_id, cfg2)
+    assert "单独归入一条属性" in captured["system"]
+    assert "一律忽略" not in captured["system"]
+
+
+def test_factory_prompt_upgrades_but_user_rewrite_is_kept(memory):
+    """出厂提示词跟随升级;被改写过的版本保留(符合"可进化 + 可回滚")。"""
+    from memvault.prompts import EXTRACT_PROMPT, EXTRACT_PROMPT_V1, PromptStore
+
+    pstore = PromptStore(memory.db)
+    pstore.new_version("extract", "extract", EXTRACT_PROMPT_V1)   # 装作老库
+    pstore.ensure_seed()
+    active = pstore.get_active("extract", "extract")
+    assert "并列对象" in active["content"] and active["origin"] == "upgrade"
+    old = [v for v in pstore.versions("extract", "extract") if v["version"] == 1]
+    assert old and old[0]["status"] == "retired"                  # 旧版可回滚
+
+    # 用户改写过的提示词不被覆盖
+    pstore.new_version("extract", "extract", "我自己改的提示词:只输出一句话")
+    pstore.ensure_seed()
+    assert "我自己改的" in pstore.get_active("extract", "extract")["content"]

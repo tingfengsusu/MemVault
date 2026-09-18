@@ -231,8 +231,24 @@ def _extraction_text(item: dict, budget: int = 3000) -> str:
     return sep.join(parts)
 
 
-def extract_item(memory, llm, pstore, item_id: int) -> dict:
-    """按分类提示词提取结构化属性,合并进 attrs_json。"""
+# 广告/推广内容的处理策略(用户可在设置页切换 llm.ads_policy)
+ADS_POLICIES = {
+    "ignore": (
+        "广告与推广内容一律忽略:不要提取、不要写进任何属性,也不要出现在其他属性的"
+        "描述里;只有当整条内容几乎只有广告时,才用一条属性写明「内容性质:推广内容」。"),
+    "mention": (
+        "广告与推广内容单独归入一条属性(如「推广信息」),与正文信息分开列出,"
+        "不要混进其他属性。"),
+}
+
+
+def ads_policy_text(cfg: dict) -> str:
+    mode = str((cfg.get("llm") or {}).get("ads_policy", "ignore")).lower()
+    return ADS_POLICIES.get(mode, ADS_POLICIES["ignore"])
+
+
+def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> dict:
+    """按分类提示词提取结构化属性,写入 items.attrs_ai(整体替换)。"""
     item = memory.get_item(item_id)
     if not item:
         raise ValueError(f"条目不存在: {item_id}")
@@ -248,7 +264,14 @@ def extract_item(memory, llm, pstore, item_id: int) -> dict:
         if prompt is None:
             pstore.ensure_seed()
             prompt = pstore.get_active("extract", "extract", None)
-    system = prompt["content"].replace("{category}", cat_name)
+    system = (prompt["content"] or "").replace("{category}", cat_name)
+    # 广告策略:占位符存在就替换;老版本提示词(无占位符)则追加一段,
+    # 保证用户改写过的提示词也能用上这个开关
+    policy = ads_policy_text(cfg or {})
+    if "{ads_policy}" in system:
+        system = system.replace("{ads_policy}", policy)
+    else:
+        system = f"{system}\n- {policy}"
 
     resp = llm.chat_json(
         system, f"条目标题:{item['title']}\n条目内容:\n{_extraction_text(item)}")

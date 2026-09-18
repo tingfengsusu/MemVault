@@ -4,6 +4,8 @@
  * 数据走 /api/items、/api/search/images、/api/search/image;样式沿用面板既有 class。
  */
 import { computed, onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, api, searchApi } from '../api/client.js'
 
 const props = defineProps({
@@ -20,7 +22,6 @@ const page = ref(1)
 const pageSize = 10
 const loading = ref(false)
 const searching = ref(false)     // 正在检索(用于"思考中"提示,避免等待被主观放大)
-const toast = ref(null)
 const queryImage = ref('')       // 以图搜图时回显的查询图
 const queryLabel = ref('')
 const dragging = ref(false)
@@ -30,10 +31,7 @@ const domains = ref([])
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const imageSearchOn = ref(true)
 
-function flash(kind, text) {
-  toast.value = { kind, text }
-  setTimeout(() => { if (toast.value?.text === text) toast.value = null }, 4000)
-}
+const flash = (kind, text) => showToast(kind, text)
 
 async function loadDomains() {
   try {
@@ -136,12 +134,7 @@ onMounted(() => {
 <template>
   <div @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
     <h3 style="margin:4px 0 12px">检索</h3>
-
-    <div v-if="toast" class="card">
-      <span :class="toast.kind === 'err' ? 'tag warn' : 'tag'">
-        {{ toast.kind === 'err' ? '出错' : '提示' }}</span>
-      <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-    </div>
+    <ToastHost />
 
     <div class="card" :style="dragging ? { borderColor: 'var(--link, #4c6ef5)' } : {}">
       <form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" @submit.prevent="doSearch(1)">
