@@ -65,6 +65,18 @@ export const inboxApi = {
   reanalyze: (itemId) => api.post(`/api/items/${itemId}/reanalyze`),
 }
 
+export const itemApi = {
+  reanalyze: (itemId) => api.post(`/api/items/${itemId}/reanalyze`),
+  cart: (itemId) => api.post(`/api/items/${itemId}/cart`),
+  setStatus: (itemId, status) => api.post(`/api/items/${itemId}/status`, { status }),
+  classify: (itemId, categoryId) =>
+    api.post(`/api/items/${itemId}/classify`, { category_id: categoryId }),
+  bindUp: (itemId, categoryId, upMid = '', upName = '') =>
+    api.post(`/api/items/${itemId}/bind-up`,
+             { category_id: Number(categoryId), up_mid: upMid || '', up_name: upName || '' }),
+  unbindUp: (upMid) => api.post(`/api/up/${upMid}/unbind`, {}),
+}
+
 export const searchApi = {
   search: ({ q, domain = '', page = 1, pageSize = 12 } = {}) =>
     api.get('/api/items', { q, domain, page, page_size: pageSize }),

@@ -16,6 +16,7 @@ export default defineConfig({
         // 每迁移一个页面就加一个入口(渐进增强:未迁移的页面仍是 Jinja2 渲染)
         inbox: resolve(__dirname, 'src/entries/inbox.js'),
         search: resolve(__dirname, 'src/entries/search.js'),
+        item: resolve(__dirname, 'src/entries/item.js'),
       },
       output: {
         entryFileNames: '[name].js',

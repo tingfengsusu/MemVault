@@ -163,9 +163,13 @@ def test_item_detail_bili_jump(env):
                            source_ref="https://www.bilibili.com/video/BV1xx411c7mD")
     mem.add_text_chunk(item_id, "起锅烧油放入冰糖", start_ts=75.0)
 
-    html = client.get(f"/items/{item_id}").text
-    assert "01:15" in html
-    assert "https://www.bilibili.com/video/BV1xx411c7mD?t=75" in html
+    # 详情页已迁移到 Vue:跳转链接与时间戳标签由 /api/items/{id} 提供
+    page = client.get(f"/items/{item_id}").text
+    assert 'id="item-app"' in page and "/static/dist/item.js" in page
+    d = client.get(f"/api/items/{item_id}").json()["data"]
+    text_chunk = next(c for c in d["chunks"] if c["modality"] == "text")
+    assert text_chunk["timestamp_label"] == "01:15"
+    assert text_chunk["jump"] == "https://www.bilibili.com/video/BV1xx411c7mD?t=75"
 
 
 def test_inbox_batch_actions(tmp_path, monkeypatch):

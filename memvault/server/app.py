@@ -245,30 +245,13 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/items/{item_id}")
     def item_detail(request: Request, item_id: int):
+        # 本页已迁移到 Vue(方案 A):只渲染外壳(标题留给 <title>),
+        # 数据由 /api/items/{id} 提供。
         item = memory.get_item(item_id)
         if not item:
             raise HTTPException(404)
-        cat = memory.db.get_category(item["category_id"]) \
-            if item.get("category_id") else None
-        related = memory.db.links_for_items([item_id]).get(item_id, [])
-        md = media_dir(cfg)
-        for c in item["chunks"]:
-            c["jump"] = bili_jump(item["source_ref"], c.get("start_ts"))
-            if c.get("media_path"):
-                try:
-                    c["media_url"] = "/media/" + str(
-                        Path(c["media_path"]).relative_to(md)
-                    ).replace("\\", "/")
-                except ValueError:
-                    c["media_url"] = None
-        raw = json.loads(item.get("attrs_json") or "{}") or {}
-        up_mid, up_name = raw.get("up_mid"), raw.get("up")
-        up_rule = memory.db.up_category(up_mid) if up_mid else None
         return templates.TemplateResponse(request, "item.html",
-            ctx(request, item=item, category_name=cat["name"] if cat else None,
-                related=related, all_categories=memory.db.categories(),
-                up_mid=up_mid, up_name=up_name, up_rule=up_rule,
-                image_search_on=memory.image_embedder is not None))
+            ctx(request, item=item))
 
     @app.get("/jobs")
     def jobs(request: Request):

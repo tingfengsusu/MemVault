@@ -166,5 +166,6 @@ def test_library_page_shows_related(tmp_path, monkeypatch):
         page = client.get("/")
         assert "🔗 相关:" in page.text and "深蹲要点二" in page.text
 
-        detail = client.get(f"/items/{a}").text
-        assert "相关条目" in detail and "相似度 1.00" in detail
+        detail = client.get(f"/api/items/{a}").json()["data"]
+        assert detail["related"] and detail["related"][0]["title"] == "深蹲要点二"
+        assert float(detail["related"][0]["score"]) >= 0.99

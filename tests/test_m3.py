@@ -208,8 +208,11 @@ def test_panel_reanalyze_enqueues_job(api_client):
     ).fetchone()
     assert row["status"] == "pending"
 
-    html = client.get(f"/items/{item_id}").text
-    assert "重新分析" in html
+    # 详情页迁到 Vue:按钮在组件里,数据与动作走接口
+    page = client.get(f"/items/{item_id}").text
+    assert 'id="item-app"' in page and "/static/dist/item.js" in page
+    r2 = client.post(f"/api/items/{item_id}/reanalyze")
+    assert r2.json()["data"]["queued"] == "auto_process"
 
 
 def test_route_proposes_new_category_on_medium_confidence(memory, pstore, cfg):
@@ -489,19 +492,27 @@ def test_panel_bind_up_and_list(api_client):
     item = app.state.memory.add_item("general", "video", "冰淇淋视频",
                                      attrs={"up": "胡仔一人食", "up_mid": "777"})
 
-    html = client.get(f"/items/{item}").text
-    assert "胡仔一人食" in html and "该 UP 的视频都归此分类" in html
+    # 详情页迁到 Vue:UP 信息与绑定动作走接口
+    d = client.get(f"/api/items/{item}").json()["data"]
+    assert d["up"]["up_mid"] == "777" and d["up"]["up_name"] == "胡仔一人食"
 
-    r = client.post(f"/items/{item}/bind-up",
-                    data={"category_id": str(cat), "up_mid": "777",
-                          "up_name": "胡仔一人食"}, follow_redirects=False)
-    assert r.status_code == 303
+    r = client.post(f"/api/items/{item}/bind-up",
+                    json={"category_id": cat, "up_mid": "777",
+                          "up_name": "胡仔一人食"})
+    assert r.json()["ok"] is True and r.json()["data"]["category_name"] == "冰淇淋教程"
     assert app.state.memory.db.up_category("777")["category_id"] == cat
     assert app.state.memory.get_item(item)["category_id"] == cat
 
+    # 分类页仍能看到规则(页面 + 接口两处)
     page = client.get("/categories").text
     assert "UP主 → 分类 规则" in page and "胡仔一人食" in page
+    rules = client.get("/api/categories").json()["data"]["up_rules"]
+    assert rules and rules[0]["up_mid"] == "777"
 
+    # 解除绑定:接口与旧表单端点(双轨)都能解
+    assert client.post("/api/up/777/unbind").json()["data"]["removed"] == 1
+    assert app.state.memory.db.up_rules() == []
+    app.state.memory.db.bind_up_category("777", "胡仔一人食", cat)
     r2 = client.post("/up/777/unbind", data={"back": "categories"},
                      follow_redirects=False)
     assert r2.status_code == 303

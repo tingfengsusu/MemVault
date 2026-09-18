@@ -149,10 +149,18 @@ class Serializer:
                 "timestamp_label": (fmt_ts(c["start_ts"])
                                     if c.get("start_ts") is not None else None),
                 "media_url": _media_url(self.cfg, c.get("media_path")),
+                "jump": self._jump(it.get("source_ref"), c.get("start_ts")),
                 "source_ref": it.get("source_ref"),
             })
         out["chunks"] = chunks
         return out
+
+    @staticmethod
+    def _jump(source_ref, start_ts):
+        """B站来源 → 定位到时间戳的链接(与页面路由同一实现)。"""
+        from memvault.server.app import bili_jump
+
+        return bili_jump(source_ref, start_ts)
 
     def image_hit(self, h: dict) -> dict:
         c, it = h["chunk"], h["item"]
@@ -278,6 +286,43 @@ def build_router(memory, cfg: dict) -> APIRouter:
                                     f"手动归入:{cat['name']}")
         memory.db.set_item_status(item_id, "filed")
         return ok(ser.item_brief(memory.get_item(item_id)))
+
+    @api.post("/items/{item_id}/cart")
+    def item_cart(item_id: int):
+        """把条目加入京东购物车(用户显式点击,worker 异步执行)。"""
+        it = memory.get_item(item_id)
+        if not it:
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        memory.db.enqueue("jd_cart", {"keyword": it["title"], "item_id": item_id})
+        return ok({"item_id": item_id, "queued": "jd_cart"})
+
+    @api.post("/items/{item_id}/bind-up")
+    def bind_up(item_id: int, category_id: int = Body(...),
+                up_mid: str = Body(""), up_name: str = Body("")):
+        """把这个 UP 的视频都归到该分类(可含本条:直接归档)。"""
+        it = memory.get_item(item_id)
+        if not it:
+            fail("not_found", f"条目不存在: {item_id}", 404)
+        raw = _json_or(it.get("attrs_json"), {})
+        mid = str(up_mid or raw.get("up_mid") or "")
+        if not mid:
+            fail("no_up", "该条目没有 UP主 信息", 422)
+        cat = memory.db.get_category(int(category_id))
+        if not cat:
+            fail("not_found", "分类不存在", 404)
+        name = up_name or raw.get("up")
+        memory.db.bind_up_category(mid, name, cat["id"])
+        memory.db.set_item_category(item_id, cat["id"], 1.0,
+                                    f"UP主规则:{name or mid} 的视频归入本分类")
+        memory.db.set_item_status(item_id, "filed")
+        return ok({"up_mid": mid, "category_id": cat["id"],
+                   "category_name": cat["name"],
+                   "item": ser.item_brief(memory.get_item(item_id))})
+
+    @api.post("/up/{up_mid}/unbind")
+    def unbind_up(up_mid: str):
+        n = memory.db.unbind_up_category(up_mid)
+        return ok({"up_mid": up_mid, "removed": n})
 
     @api.get("/inbox")
     def inbox(domain: str = "", page: int = 1,

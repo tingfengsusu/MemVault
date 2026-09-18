@@ -416,6 +416,19 @@ SQLite integrity_check / 条目与日志规模 / 向量数==文本块数 / 嵌�
 | 旧 HTML 图像端点 | `/search/image` 与 `/items/{id}/similar-image` 让位给 JSON 版,条目页改为跳 `/search?similar=item:chunk` |
 | 全套测试 | **129 passed** |
 
+### 第 4 步:条目详情页迁移(item 详情)
+
+交互最密的一页:AI 提取表 / 原始属性 / 语义块时间轴(带 B站跳转)/ 相关条目 /
+UP主 绑定(下拉 + 解绑)/ 重新分析 / 加购 / 以画面找相似 / 状态流转。
+
+- API 补:`POST /api/items/{id}/cart`、`POST /api/items/{id}/bind-up`、
+  `POST /api/up/{mid}/unbind`;chunk 序列化补 `jump`(B站时间戳链接,与页面路由同一实现);
+- `ItemView.vue` + `item.js` 入口;`item.html` 变挂载点,`/items/{id}` 路由只渲染外壳;
+- 测试迁移 **7 处**断言(detail 跳转/加购按钮/重新分析/UP 绑定/相关条目/分类名/找相似入口),
+  统一改成"外壳 + 接口"断言,并顺手补了 `unbind` 的双轨用例;全套 **129 passed**;
+- 真机:AI 提取表(真实键"关键食材与工具")、原始属性里的 UP主、语义块「▶ 跳到视频此处」、
+  UP 绑定入口、重新分析按钮、找相似入口全部渲染;控制台仅 favicon 404。
+
 ### 真机验证(Playwright 驱动系统 Chrome)
 
 - 待整理箱:卡片/批量条/领域筛选/单条操作全部渲染;点「全部已归类」→ 批量接口 → "已处理 2 条" →

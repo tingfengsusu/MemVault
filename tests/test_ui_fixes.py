@@ -61,8 +61,8 @@ def test_inbox_shows_suggestion_and_manual_classify(client_env):
     it3 = mem.get_item(item3)
     assert it3["status"] == "filed" and it3["category_id"] == cat_id
 
-    html = client.get(f"/items/{item2}").text
-    assert "分类:技术笔记" in html
+    d = client.get(f"/api/items/{item2}").json()["data"]
+    assert d["category_name"] == "技术笔记"        # 详情页迁 Vue 后走接口
 
 
 def test_settings_save_and_apply(client_env):
