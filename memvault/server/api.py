@@ -192,8 +192,24 @@ class Serializer:
             "id": j["id"], "type": j["type"], "status": j["status"],
             "error": j.get("error"), "created_at": j.get("created_at"),
             "started_at": j.get("started_at"), "finished_at": j.get("finished_at"),
+            "duration": self._duration(j.get("started_at"), j.get("finished_at")),
             "payload": j.get("payload"), "payload_pretty": _pretty(j.get("payload")),
         }
+
+    @staticmethod
+    def _duration(started, finished) -> str:
+        """耗时的人类可读形式(与任务页原来一致)。"""
+        if not started or not finished:
+            return ""
+        from datetime import datetime as _dt
+
+        try:
+            s = _dt.strptime(started, "%Y-%m-%d %H:%M:%S")
+            f = _dt.strptime(finished, "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return ""
+        sec = (f - s).total_seconds()
+        return f"{sec:.0f} 秒" if sec < 120 else f"{sec / 60:.1f} 分钟"
 
     def source(self, s: dict) -> dict:
         return {k: s.get(k) for k in
@@ -519,6 +535,38 @@ def build_router(memory, cfg: dict) -> APIRouter:
     def sources():
         return ok({"items": [ser.source(s) for s in memory.db.watch_sources()]})
 
+    @api.post("/sources")
+    def add_source(kind: str = Body("bili_up"), target: str = Body(...),
+                   domain: str = Body("general")):
+        """新增订阅源(B站 UP主):UID 或 space 链接都能解析。"""
+        from memvault.sources import bili_watch
+
+        mid = bili_watch.parse_mid(target)
+        if not mid:
+            fail("invalid_target", "无法解析 UP主 UID(需 UID 或 space 链接)", 422)
+        label = bili_watch.up_name(mid)
+        sid = memory.db.add_watch_source(kind, mid,
+                                         domain=(domain or "general"), label=label)
+        logger.info("新增订阅源 %s(%s) → 领域 %s", label, mid, domain)
+        return ok({"id": sid, "kind": kind, "target": mid, "label": label,
+                   "domain": domain or "general"})
+
+    @api.post("/sources/{source_id}/toggle")
+    def toggle_source(source_id: int):
+        src = memory.db.get_watch_source(source_id)
+        if not src:
+            fail("not_found", f"订阅源不存在: {source_id}", 404)
+        memory.db.toggle_watch_source(source_id)
+        return ok(ser.source(memory.db.get_watch_source(source_id)))
+
+    @api.post("/sources/{source_id}/check")
+    def check_source(source_id: int):
+        src = memory.db.get_watch_source(source_id)
+        if not src:
+            fail("not_found", f"订阅源不存在: {source_id}", 404)
+        memory.db.enqueue("watch_check", {"source_id": source_id})
+        return ok({"source_id": source_id, "queued": "watch_check"})
+
     @api.get("/stats")
     def stats():
         """库概览:条目/语义块/待整理/日志等计数 + 领域分布。"""
@@ -529,18 +577,94 @@ def build_router(memory, cfg: dict) -> APIRouter:
                        " AND embed_status='pending'").fetchone()[0]})
 
     @api.get("/settings")
-    def settings():
-        """当前配置(**密钥只回显是否已配置,绝不返回明文**)。"""
+    def settings(app_request: Request):
+        """当前配置(**密钥只回显是否已配置,绝不返回明文**)。
+
+        api_key_set 以"运行中客户端实际持有的 key"为准(与页面路由一致),
+        没有客户端时退回配置解析结果。
+        """
         from memvault.llm import resolve_api_key
 
+        live = getattr(app_request.app.state, "llm", None)
+        key = (getattr(live, "api_key", "") or resolve_api_key(cfg) or "")
         llm = dict(cfg.get("llm", {}))
         llm.pop("api_key", None)
         llm.pop("web", None)
-        llm["api_key_set"] = bool(resolve_api_key(cfg))
+        llm["api_key_set"] = bool(key)
         return ok({"llm": llm, "asr": cfg.get("asr", {}),
                    "embedding": cfg.get("embedding", {}),
                    "vision": cfg.get("vision", {}),
                    "frames": cfg.get("frames", {}),
                    "links": cfg.get("links", {})})
+
+    @api.post("/settings")
+    def save_settings(app_request: Request, backend: str = Body("api"),
+                      base_url: str = Body(...), model: str = Body(...),
+                      api_key: str = Body(""),
+                      classify_confidence: float = Body(0.8)):
+        """保存 LLM 设置(写 config.yaml + .env 并即时生效)。
+
+        **密钥只写不回读**:api_key 传空字符串表示"不改动现有 key"。
+        """
+        import yaml as _yaml
+
+        from memvault import llm as llm_mod
+        from memvault.config import DEFAULT_CONFIG_PATH
+
+        p = Path(cfg.get("_config_path") or DEFAULT_CONFIG_PATH)
+        raw = {}
+        if p.exists():
+            raw = _yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        sec = raw.setdefault("llm", {})
+        sec["backend"] = backend if backend in ("api", "web") else "api"
+        sec["base_url"] = (base_url or "").strip()
+        sec["model"] = (model or "").strip()
+        sec["classify_confidence"] = float(classify_confidence)
+        p.write_text(_yaml.safe_dump(raw, allow_unicode=True, sort_keys=False),
+                     encoding="utf-8")
+
+        cfg["llm"]["backend"] = sec["backend"]
+        cfg["llm"]["base_url"] = sec["base_url"]
+        cfg["llm"]["model"] = sec["model"]
+        cfg["llm"]["classify_confidence"] = sec["classify_confidence"]
+        key_updated = bool((api_key or "").strip())
+        if key_updated:
+            env = llm_mod.PROJECT_ROOT / ".env"
+            lines = (env.read_text(encoding="utf-8").splitlines()
+                     if env.exists() else [])
+            lines = [x for x in lines if not x.startswith("DEEPSEEK_API_KEY=")]
+            lines.append(f"DEEPSEEK_API_KEY={api_key.strip()}")
+            env.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            cfg["llm"]["api_key"] = api_key.strip()
+
+        llm_mod.reset_llm_client()        # 切换后端时关闭旧的浏览器实例
+        app_request.app.state.llm = llm_mod.get_llm_client(cfg)
+        logger.info("LLM 设置已保存: backend=%s model=%s",
+                    sec["backend"], sec["model"])
+        from memvault.llm import resolve_api_key
+
+        out = dict(sec)
+        out.pop("web", None)
+        out["api_key_set"] = bool(resolve_api_key(cfg))
+        out["api_key_updated"] = key_updated
+        return ok(out)
+
+    @api.post("/settings/test")
+    def test_settings(app_request: Request):
+        """测试 LLM 连通性:返回 {ok, message}。"""
+        client = getattr(app_request.app.state, "llm", None)
+        if client is None:
+            from memvault.llm import get_llm_client
+
+            client = get_llm_client(cfg)
+        if not getattr(client, "enabled", False):
+            fail("llm_disabled", "未配置 API key", 400)
+        try:
+            # 预算给足:推理型模型的思考 token 会占用 max_tokens
+            client.chat_json("你是回声机,只输出 JSON。", '回复 {"ok": true}',
+                             max_tokens=800)
+            return ok({"message": f"连接成功 ✓ 当前模型:{client.model}"})
+        except Exception as e:  # noqa: BLE001
+            fail("llm_error", f"连接失败 ✗ {str(e)[:160]}", 502)
 
     return api

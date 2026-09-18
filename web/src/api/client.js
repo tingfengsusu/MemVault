@@ -65,6 +65,17 @@ export const inboxApi = {
   reanalyze: (itemId) => api.post(`/api/items/${itemId}/reanalyze`),
 }
 
+export const settingsApi = {
+  save: (payload) => api.post('/api/settings', payload),
+  test: () => api.post('/api/settings/test', {}),
+}
+
+export const sourceApi = {
+  add: (kind, target, domain) => api.post('/api/sources', { kind, target, domain }),
+  toggle: (id) => api.post(`/api/sources/${id}/toggle`, {}),
+  check: (id) => api.post(`/api/sources/${id}/check`, {}),
+}
+
 export const categoryApi = {
   add: (domain, name) => api.post('/api/categories', { domain, name }),
   confirm: (id) => api.post(`/api/categories/${id}/confirm`, {}),

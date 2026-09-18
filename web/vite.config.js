@@ -19,6 +19,9 @@ export default defineConfig({
         item: resolve(__dirname, 'src/entries/item.js'),
         home: resolve(__dirname, 'src/entries/home.js'),
         categories: resolve(__dirname, 'src/entries/categories.js'),
+        jobs: resolve(__dirname, 'src/entries/jobs.js'),
+        sources: resolve(__dirname, 'src/entries/sources.js'),
+        settings: resolve(__dirname, 'src/entries/settings.js'),
       },
       output: {
         entryFileNames: '[name].js',

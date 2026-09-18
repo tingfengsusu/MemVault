@@ -247,29 +247,9 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/jobs")
     def jobs(request: Request):
-        from datetime import datetime as _dt
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/jobs 提供。
+        return templates.TemplateResponse(request, "jobs.html", ctx(request))
 
-        rows = memory.db.list_jobs(50)
-        for j in rows:
-            j["duration"] = ""
-            if j.get("started_at") and j.get("finished_at"):
-                try:
-                    s = _dt.strptime(j["started_at"], "%Y-%m-%d %H:%M:%S")
-                    f = _dt.strptime(j["finished_at"], "%Y-%m-%d %H:%M:%S")
-                    sec = (f - s).total_seconds()
-                    j["duration"] = f"{sec:.0f} 秒" if sec < 120 else f"{sec / 60:.1f} 分钟"
-                except (ValueError, TypeError):
-                    pass
-            try:  # 参数摘要:解析 JSON 取关键信息
-                p = json.loads(j["payload"])
-                j["payload_pretty"] = " · ".join(
-                    f"{k}={str(v)[:70]}" for k, v in p.items()) or "(空)"
-            except (json.JSONDecodeError, AttributeError):
-                j["payload_pretty"] = j["payload"][:120]
-        return templates.TemplateResponse(request, "jobs.html",
-            ctx(request, jobs=rows))
-
-    # ── 分类管理(M3)────────────────────────────────────────────────
     @app.get("/categories")
     def categories_page(request: Request):
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/categories 提供。
@@ -372,8 +352,8 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     # ── 订阅管理(M3b)────────────────────────────────────────────────
     @app.get("/sources")
     def sources_page(request: Request):
-        return templates.TemplateResponse(request, "sources.html",
-            ctx(request, sources=memory.db.watch_sources()))
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/sources 提供。
+        return templates.TemplateResponse(request, "sources.html", ctx(request))
 
     @app.post("/sources/add")
     def sources_add(kind: str = Form(...), target: str = Form(...),
@@ -407,21 +387,10 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     from urllib.parse import quote as _quote
 
     @app.get("/settings")
-    def settings_page(request: Request, saved: int = 0, test: str = ""):
-        l = cfg.get("llm", {})
-        backend = l.get("backend", "api")
-        key = app.state.llm.api_key if hasattr(app.state.llm, "api_key") else ""
-        key = key or ""
-        if len(key) > 12:
-            masked = key[:6] + "…" + key[-4:]
-        elif key:
-            masked = "已配置"
-        else:
-            masked = "未配置"
-        return templates.TemplateResponse(request, "settings.html",
-            ctx(request, llm=l, backend=backend, key_masked=masked,
-                saved=bool(saved), test_result=test, asr=cfg.get("asr", {}),
-                emb=cfg.get("embedding", {})))
+    def settings_page(request: Request):
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/settings 提供
+        # (密钥只回显"是否已配置",不回明文)。
+        return templates.TemplateResponse(request, "settings.html", ctx(request))
 
     @app.post("/settings/save")
     def settings_save(backend: str = Form("api"),

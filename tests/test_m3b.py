@@ -152,24 +152,36 @@ def api(tmp_path, monkeypatch):
 
 
 def test_panel_sources_flow(api):
+    """订阅页迁到 Vue 后:外壳 + /api/sources* 接口(旧表单端点双轨保留)。"""
     client, app, _ = api
+    page = client.get("/sources")
+    assert page.status_code == 200 and 'id="sources-app"' in page.text
+
+    # 旧表单端点仍可用
     r = client.post("/sources/add", data={"kind": "bili_up", "target": "8888",
                                           "domain": "fitness"},
                     follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/sources")
-    assert "8888" in page.text
-    sid = app.state.memory.db.watch_sources()[0]["id"]
+    # 新 JSON 端点
+    r2 = client.post("/api/sources", json={"kind": "bili_up", "target": "9999",
+                                           "domain": "general"})
+    assert r2.json()["data"]["target"] == "9999"
+    items = client.get("/api/sources").json()["data"]["items"]
+    assert {s["target"] for s in items} == {"8888", "9999"}
 
-    r = client.post(f"/sources/{sid}/check", follow_redirects=False)
-    assert r.status_code == 303
-    assert app.state.memory.db.job_exists  # 任务入队
+    sid = app.state.memory.db.watch_sources()[0]["id"]
+    r3 = client.post(f"/api/sources/{sid}/check")
+    assert r3.json()["data"]["queued"] == "watch_check"
     row = app.state.memory.db._conn().execute(
         "SELECT type FROM jobs WHERE type='watch_check'").fetchone()
     assert row is not None
 
-    client.post(f"/sources/{sid}/toggle")
-    assert app.state.memory.db.watch_sources(enabled_only=True) == []
+    assert client.post(f"/api/sources/{sid}/toggle").json()["data"]["enabled"] in (0, False)
+    assert len(app.state.memory.db.watch_sources(enabled_only=True)) == 1
+    assert client.post("/api/sources/99999/toggle").status_code == 404
+    assert client.post("/api/sources/99999/check").status_code == 404
+    assert client.post("/api/sources", json={"kind": "bili_up",
+                                             "target": "不是UID"}).status_code == 422
 
 
 def test_panel_chat_llm_disabled(api):
