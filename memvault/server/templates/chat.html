@@ -1,69 +1,9 @@
 {% extends "base.html" %}
 {% block title %}聊天 · MemVault{% endblock %}
 {% block content %}
-<div class="card">
-  <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
-    <b>技能:</b>
-    <select id="skill" style="padding:5px 8px;border:1px solid #d1d5db;border-radius:6px">
-      <option value="general">通用助手</option>
-      <option value="fitness">健身教练</option>
-      <option value="shopping">购物决策</option>
-    </select>
-    <span class="muted">对话中提到的个人事实会存入画像,报告的行为会记入日志(下方提示)。</span>
-  </div>
-  <div id="log" style="max-height:420px;overflow-y:auto"></div>
-  <div style="display:flex;gap:8px;margin-top:10px">
-    <input id="msg" placeholder="例如:我身高 178,目标增肌。今天练了胸 5 组 + 跑步 40 分钟,明天练什么?"
-           style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px"
-           onkeydown="if(event.key==='Enter')send()">
-    <button onclick="send()">发送</button>
-  </div>
+{# 本页已迁移到 Vue(方案 A):对话走 POST /api/chat(消息不落盘,抽取结果落盘)。 #}
+<div id="chat-app">
+  <noscript>聊天需要 JavaScript;也可以直接调用 <code>POST /api/chat</code>。</noscript>
 </div>
-<script>
-const log = document.getElementById('log');
-function buildMsg(who, text, meta) {
-  const d = document.createElement('div');
-  d.className = 'card';
-  d.innerHTML = `<span class="tag">${who}</span>` +
-    `<div class="snippet" style="margin-top:6px"></div>` +
-    (meta ? `<div class="muted" style="margin-top:4px">${meta}</div>` : '');
-  d.querySelector('.snippet').textContent = text;
-  return d;
-}
-function add(who, text, meta) {
-  const d = buildMsg(who, text, meta);
-  log.appendChild(d);
-  d.scrollIntoView({behavior: 'smooth'});
-  return d;
-}
-async function send() {
-  const inp = document.getElementById('msg');
-  const skill = document.getElementById('skill').value;
-  const text = inp.value.trim();
-  if (!text) return;
-  inp.value = '';
-  add('我', text);
-  const pending = add('MemVault', '思考中…');
-  try {
-    const r = await fetch('/api/chat', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: text, skill})
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      pending.replaceWith(buildMsg('系统', err.detail || ('请求失败 ' + r.status)));
-      return;
-    }
-    const data = await r.json();
-    const bits = [];
-    if (data.profile_saved && data.profile_saved.length)
-      bits.push('已存入画像:' + data.profile_saved.join('、'));
-    if (data.log_saved) bits.push('已记入日志');
-    if (data.context_used) bits.push('检索命中 ' + data.context_used + ' 条');
-    pending.replaceWith(buildMsg('MemVault', data.reply, bits.join(' · ')));
-  } catch (e) {
-    pending.replaceWith(buildMsg('系统', '连接失败:' + e));
-  }
-}
-</script>
+<script type="module" src="/static/dist/chat.js"></script>
 {% endblock %}
