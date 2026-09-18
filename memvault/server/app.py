@@ -108,12 +108,14 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     # ── 采集 API(浏览器插件 / 热键 / 其他工具)──────────────────────
     @app.get("/api/health")
     def health():
+        """探活:插件/脚本用它判断服务是否在线。"""
         return {"ok": True, "version": __version__,
                 "items": memory.db.stats()["items"],
                 "paused": app.state.paused}
 
     @app.post("/api/capture")
     def capture(req: CaptureReq):
+        """采集入口(见 DESIGN §8.1):selection/page/product/video。"""
         if app.state.paused:
             raise HTTPException(403, "采集已暂停")
         db = memory.db
@@ -154,6 +156,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/api/pause")
     def pause_toggle():
+        """暂停/恢复采集开关。"""
         app.state.paused = not app.state.paused
         return {"paused": app.state.paused}
 
@@ -165,6 +168,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/")
     def index(request: Request, domain: str = "", page: int = 1):
+        """库首页(外壳;数据由 /api/items + /api/stats 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/stats 与
         # /api/items?with_related=1 提供;domain 透传进挂载点。
         return templates.TemplateResponse(request, "index.html",
@@ -172,6 +176,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/search")
     def search(request: Request, q: str = "", similar: str = ""):
+        """检索页(外壳;数据由 /api/items + /api/search/images 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/items 与
         # /api/search/images 提供;q / similar 透传进挂载点(便于分享链接)。
         return templates.TemplateResponse(request, "search.html",
@@ -179,6 +184,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/inbox")
     def inbox(request: Request, domain: str = ""):
+        """待整理箱(外壳;数据由 /api/inbox 提供)。"""
         # 本页已迁移到 Vue(方案 A):这里只渲染外壳,数据由 /api/inbox 提供。
         # 旧模板仍在 git 历史里,需要回退时 revert 对应提交即可。
         return templates.TemplateResponse(request, "inbox.html",
@@ -213,6 +219,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/items/{item_id}/status")
     def set_status(item_id: int, status: str):
+        """旧表单:改状态后回待整理箱(revert 用,双轨保留)。"""
         if status not in ("inbox", "filed", "archived"):
             raise HTTPException(422, "非法 status")
         memory.db.set_item_status(item_id, status)
@@ -220,6 +227,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/items/{item_id}")
     def item_detail(request: Request, item_id: int):
+        """条目详情页(外壳;数据由 /api/items/{id} 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳(标题留给 <title>),
         # 数据由 /api/items/{id} 提供。
         item = memory.get_item(item_id)
@@ -230,17 +238,20 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/jobs")
     def jobs(request: Request):
+        """任务页(外壳;数据由 /api/jobs 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/jobs 提供。
         return templates.TemplateResponse(request, "jobs.html", ctx(request))
 
     @app.get("/categories")
     def categories_page(request: Request):
+        """分类管理页(外壳;数据由 /api/categories 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/categories 提供。
         return templates.TemplateResponse(request, "categories.html",
             ctx(request))
 
     @app.post("/categories/add")
     def categories_add(domain: str = Form(...), name: str = Form(...)):
+        """旧表单:新增分类(双轨保留)。"""
         name = name.strip()[:40]
         if not name:
             raise HTTPException(422, "分类名不能为空")
@@ -249,6 +260,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/categories/{category_id}/confirm")
     def categories_confirm(category_id: int):
+        """旧表单:采纳提议分类(双轨保留)。"""
         memory.db.confirm_category(category_id)
         return RedirectResponse("/categories", status_code=303)
 
@@ -287,12 +299,14 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/up/{up_mid}/unbind")
     def unbind_up(up_mid: str, back: str = Form("categories")):
+        """旧表单:解除 UP 规则(双轨保留)。"""
         memory.db.unbind_up_category(up_mid)
         target = "/categories" if back == "categories" else "/"
         return RedirectResponse(target, status_code=303)
 
     @app.post("/items/{item_id}/reanalyze")
     def reanalyze(item_id: int):
+        """旧表单:重新分析(双轨保留)。"""
         if not memory.get_item(item_id):
             raise HTTPException(404)
         memory.db.enqueue("auto_process", {"item_id": item_id})
@@ -315,17 +329,20 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/chat")
     def chat_page(request: Request):
+        """聊天页(外壳;对话走 POST /api/chat)。"""
         return templates.TemplateResponse(request, "chat.html", ctx(request))
 
     # ── 订阅管理(M3b)────────────────────────────────────────────────
     @app.get("/sources")
     def sources_page(request: Request):
+        """订阅页(外壳;数据由 /api/sources 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/sources 提供。
         return templates.TemplateResponse(request, "sources.html", ctx(request))
 
     @app.post("/sources/add")
     def sources_add(kind: str = Form(...), target: str = Form(...),
                     domain: str = Form("general")):
+        """旧表单:新增订阅(双轨保留)。"""
         from memvault.sources import bili_watch
 
         mid = bili_watch.parse_mid(target)
@@ -338,6 +355,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/sources/{source_id}/toggle")
     def sources_toggle(source_id: int):
+        """旧表单:启停订阅(双轨保留)。"""
         if not memory.db.get_watch_source(source_id):
             raise HTTPException(404)
         memory.db.toggle_watch_source(source_id)
@@ -345,6 +363,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/sources/{source_id}/check")
     def sources_check(source_id: int):
+        """旧表单:立即检查订阅(双轨保留)。"""
         if not memory.db.get_watch_source(source_id):
             raise HTTPException(404)
         memory.db.enqueue("watch_check", {"source_id": source_id})
@@ -356,6 +375,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.get("/settings")
     def settings_page(request: Request):
+        """设置页(外壳;数据由 /api/settings 提供)。"""
         # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/settings 提供
         # (密钥只回显"是否已配置",不回明文)。
         return templates.TemplateResponse(request, "settings.html", ctx(request))
@@ -399,6 +419,7 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
 
     @app.post("/settings/test")
     def settings_test():
+        """旧表单:测试 LLM 连接(双轨保留)。"""
         client = app.state.llm
         if not getattr(client, "enabled", False):
             return RedirectResponse("/settings?test=" + _quote("未配置 API key"),

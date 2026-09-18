@@ -274,6 +274,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.get("/items/{item_id}")
     def item_detail(item_id: int):
+        """条目详情:语义块(带时间戳/B站跳转)、AI 属性、相关条目、UP 信息。"""
         it = memory.get_item(item_id)
         if not it:
             fail("not_found", f"条目不存在: {item_id}", 404)
@@ -281,6 +282,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.post("/items/{item_id}/status")
     def set_item_status(item_id: int, status: str = Body(..., embed=True)):
+        """改条目状态:inbox / filed / archived。"""
         if status not in ("inbox", "filed", "archived"):
             fail("invalid_status", f"非法 status: {status}", 422)
         if not memory.get_item(item_id):
@@ -344,6 +346,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.post("/up/{up_mid}/unbind")
     def unbind_up(up_mid: str):
+        """解除某个 UP 的分类规则。"""
         n = memory.db.unbind_up_category(up_mid)
         return ok({"up_mid": up_mid, "removed": n})
 
@@ -486,6 +489,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.get("/categories")
     def categories(domain: str = ""):
+        """分类树 + 按领域分组 + UP主规则 + 领域候选(前端下拉用)。"""
         cats = [ser.category(c) for c in memory.db.categories(domain or None)]
         groups: dict = {}
         for c in cats:
@@ -508,6 +512,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.post("/categories/{category_id}/confirm")
     def confirm_category(category_id: int):
+        """采纳 LLM 提议的待确认分类。"""
         if not memory.db.get_category(category_id):
             fail("not_found", f"分类不存在: {category_id}", 404)
         memory.db.confirm_category(category_id)
@@ -526,6 +531,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.get("/jobs")
     def jobs(limit: int = 50, status: str = ""):
+        """任务队列(含 payload 摘要与耗时)。"""
         rows = memory.db.list_jobs(min(200, max(1, limit)))
         data = [ser.job(j) for j in rows
                 if not status or j["status"] == status]
@@ -557,6 +563,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.get("/sources")
     def sources():
+        """订阅源列表(B站 UP主等)。"""
         return ok({"items": [ser.source(s) for s in memory.db.watch_sources()]})
 
     @api.post("/sources")
@@ -577,6 +584,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.post("/sources/{source_id}/toggle")
     def toggle_source(source_id: int):
+        """启用/停用订阅源。"""
         src = memory.db.get_watch_source(source_id)
         if not src:
             fail("not_found", f"订阅源不存在: {source_id}", 404)
@@ -585,6 +593,7 @@ def build_router(memory, cfg: dict) -> APIRouter:
 
     @api.post("/sources/{source_id}/check")
     def check_source(source_id: int):
+        """立即检查该订阅源(入队 watch_check)。"""
         src = memory.db.get_watch_source(source_id)
         if not src:
             fail("not_found", f"订阅源不存在: {source_id}", 404)
