@@ -12,3 +12,8 @@ config/cookies.txt
 *.txt
 !requirements*.txt
 temp/
+web/node_modules/
+
+# 前端构建产物要入库(本地工具,拉下来直接可用,不必人人装 node)
+!memvault/server/static/dist/
+!memvault/server/static/dist/**

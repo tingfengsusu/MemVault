@@ -107,6 +107,12 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
     app.mount("/static", StaticFiles(directory=str(TEMPLATES_DIR.parent / "static")),
               name="static")
 
+    # JSON API 层(方案 A 第 0 步):前端/脚本的统一入口,与页面路由双轨并存
+    from memvault.server.api import build_router, install_error_handlers
+
+    install_error_handlers(app)
+    app.include_router(build_router(memory, cfg))
+
     if start_worker:
         from memvault.scheduler import run_scheduler
         from memvault.worker import run_worker
@@ -189,133 +195,19 @@ def create_app(cfg: dict | None = None, memory: Memory | None = None,
             ctx(request, stats=stats, items=items, domain=domain, page=page,
                 domain_counts=memory.db.items_by_domain()))
 
-    def _decorate_hits(hits: list) -> list:
-        """给检索结果补跳转链接与 /media 缩略图地址(文本/画面两种命中共用)。"""
-        md = media_dir(cfg)
-        for r in hits:
-            c = r["chunk"]
-            c["jump"] = bili_jump(r["item"]["source_ref"], c.get("start_ts"))
-            if c.get("media_path"):
-                try:
-                    c["media_url"] = "/media/" + str(
-                        Path(c["media_path"]).relative_to(md)
-                    ).replace("\\", "/")
-                except ValueError:
-                    c["media_url"] = None
-        return hits
-
-    def _pending_images() -> int:
-        return memory.db._conn().execute(
-            "SELECT COUNT(*) FROM chunks WHERE modality='image'"
-            " AND embed_status='pending'").fetchone()[0]
-
     @app.get("/search")
-    def search(request: Request, q: str = ""):
-        results = _decorate_hits(memory.search(q, top_k=12)) if q.strip() else []
-        images = _decorate_hits(memory.search_images(q, top_k=8)) if q.strip() else []
+    def search(request: Request, q: str = "", similar: str = ""):
+        # 本页已迁移到 Vue(方案 A):只渲染外壳,数据由 /api/items 与
+        # /api/search/images 提供;q / similar 透传进挂载点(便于分享链接)。
         return templates.TemplateResponse(request, "search.html",
-            ctx(request, results=results, images=images, q=q,
-                images_ready=(_pending_images() == 0)))
-
-    @app.post("/search/image")
-    async def search_by_image(request: Request, file: UploadFile = File(...)):
-        """以图搜图:上传一张图,找库里相似的画面。"""
-        if not (file.filename or "").strip():
-            raise HTTPException(422, "没有选择图片")
-        data = await file.read()
-        if not data:
-            raise HTTPException(422, "图片为空")
-        if len(data) > _MAX_UPLOAD_BYTES:
-            raise HTTPException(413, "图片太大(限 8MB)")
-        upload_dir = media_dir(cfg) / "_queries"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        suffix = Path(file.filename).suffix.lower() or ".jpg"
-        if suffix not in (".jpg", ".jpeg", ".png", ".webp", ".bmp"):
-            suffix = ".jpg"
-        dest = upload_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}"
-        dest.write_bytes(data)
-
-        ib = memory.image_embedder
-        if ib is None:
-            raise HTTPException(503, "图像检索未启用:需要 cn-clip 与权重")
-        try:
-            vec = ib.encode_image(str(dest))
-            hits = memory.vs.query_image(vec, k=12)
-        except Exception as e:  # noqa: BLE001 — 单次查询失败不崩面板
-            logger.warning("以图搜图失败:%s", e)
-            raise HTTPException(500, f"以图搜图失败:{e}")
-        chunks = {c["id"]: c for c in memory.db.get_chunks(
-            [h["chunk_id"] for h in hits])}
-        images = []
-        for h in hits:
-            chunk = chunks.get(h["chunk_id"])
-            if chunk is None:
-                continue
-            item = memory.db.get_items([chunk["item_id"]]).get(chunk["item_id"])
-            if item is None:
-                continue
-            images.append({"score": round(1.0 - float(h.get("distance", 1.0)), 4),
-                           "chunk": chunk, "item": item})
-        _decorate_hits(images)
-        query_url = "/media/" + str(dest.relative_to(media_dir(cfg))).replace("\\", "/")
-        logger.info("以图搜图:%s → %d 条命中", file.filename, len(images))
-        return templates.TemplateResponse(request, "search.html",
-            ctx(request, results=[], images=images, q="",
-                images_ready=(_pending_images() == 0), query_image=query_url,
-                query_label=file.filename))
-
-    @app.post("/items/{item_id}/similar-image")
-    def item_similar_image(request: Request, item_id: int, chunk_id: int = Form(...)):
-        """用库里已有的某帧去找相似画面(条目详情页的"🔍 找相似画面")。"""
-        chunk = next((c for c in (memory.get_item(item_id) or {}).get("chunks", [])
-                      if c["id"] == chunk_id and c.get("media_path")), None)
-        if chunk is None:
-            raise HTTPException(404)
-        ib = memory.image_embedder
-        if ib is None:
-            raise HTTPException(503, "图像检索未启用:需要 cn-clip 与权重")
-        vec = ib.encode_image(chunk["media_path"])
-        hits = memory.vs.query_image(vec, k=12)
-        chunks = {c["id"]: c for c in memory.db.get_chunks(
-            [h["chunk_id"] for h in hits])}
-        images = []
-        for h in hits:
-            c = chunks.get(h["chunk_id"])
-            if c is None:
-                continue
-            item = memory.db.get_items([c["item_id"]]).get(c["item_id"])
-            if item is None:
-                continue
-            images.append({"score": round(1.0 - float(h.get("distance", 1.0)), 4),
-                           "chunk": c, "item": item})
-        _decorate_hits(images)
-        md = media_dir(cfg)
-        try:
-            query_url = "/media/" + str(
-                Path(chunk["media_path"]).relative_to(md)).replace("\\", "/")
-        except ValueError:
-            query_url = None
-        return templates.TemplateResponse(request, "search.html",
-            ctx(request, results=[], images=images, q="",
-                images_ready=(_pending_images() == 0), query_image=query_url,
-                query_label=f"#{item_id} 的画面"))
+            ctx(request, q=q, similar=similar))
 
     @app.get("/inbox")
     def inbox(request: Request, domain: str = ""):
-        from collections import defaultdict as _dd
-
-        items = memory.db.list_items(status="inbox", domain=domain or None,
-                                     limit=200)
-        all_cats = memory.db.categories()
-        cats_by_domain = _dd(list)
-        for c in all_cats:
-            if c.get("status") != "archived":
-                cats_by_domain[c["domain"]].append(c)
-        cat_names = {c["id"]: c["name"] for c in all_cats}
+        # 本页已迁移到 Vue(方案 A):这里只渲染外壳,数据由 /api/inbox 提供。
+        # 旧模板仍在 git 历史里,需要回退时 revert 对应提交即可。
         return templates.TemplateResponse(request, "inbox.html",
-            ctx(request, items=items, domain=domain,
-                domain_counts=memory.db.items_by_domain(status="inbox"),
-                cats_by_domain=dict(cats_by_domain), cat_names=cat_names))
+            ctx(request, domain=domain))
 
     @app.post("/items/{item_id}/classify")
     def item_classify(item_id: int, category_id: int = Form(...)):

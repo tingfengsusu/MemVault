@@ -119,7 +119,7 @@ def test_video_pipeline_indexes_frames(monkeypatch, tmp_path):
 
 
 def test_search_page_shows_image_hits(tmp_path, monkeypatch):
-    """面板检索页出现「相关画面」区块(缩略图 + 时间戳)。"""
+    """检索页迁到 Vue 后:页面是外壳,画面命中由 /api/search/images 提供。"""
     from fastapi.testclient import TestClient
 
     from memvault import llm as llm_mod
@@ -148,9 +148,12 @@ def test_search_page_shows_image_hits(tmp_path, monkeypatch):
                           image_embedder=ib)
 
         page = client.get("/search?q=冰淇淋").text
-        assert "相关画面" in page
-        assert "冰淇淋视频" in page
-        assert "/media/item_x/f.jpg" in page
+        assert 'id="search-app"' in page and "/static/dist/search.js" in page
+        d = client.get("/api/search/images", params={"q": "冰淇淋"}).json()["data"]
+        assert d["enabled"] is True and d["items"], "接口应返回画面命中"
+        assert d["items"][0]["item"]["title"] == "冰淇淋视频"
+        assert d["items"][0]["media_url"] == "/media/item_x/f.jpg"
+        assert d["items"][0]["start_ts"] == 3.0
 
 
 def test_config_has_image_embed_switch():
@@ -197,13 +200,14 @@ def test_search_by_image_upload(tmp_path, monkeypatch):
 
         up = tmp_path / "query.jpg"
         Image.new("RGB", (20, 20), (210, 130, 50)).save(up)
-        r = client.post("/search/image",
+        r = client.post("/api/search/image",
                         files={"file": ("query.jpg", up.read_bytes(), "image/jpeg")})
         assert r.status_code == 200
-        assert "以图搜图:query.jpg" in r.text
-        assert "冰淇淋视频" in r.text
-        assert "/media/item_q/f.jpg" in r.text
-        assert "/media/_queries/" in r.text      # 查询图也回显
+        d = r.json()["data"]
+        assert d["query_label"] == "query.jpg"
+        assert d["query_image"].startswith("/media/_queries/")     # 查询图回显
+        assert d["items"][0]["item"]["title"] == "冰淇淋视频"
+        assert d["items"][0]["media_url"] == "/media/item_q/f.jpg"
         # 上传的查询图落盘了
         assert list((tmp_path / "data" / "media" / "_queries").glob("*.jpg"))
 
@@ -219,10 +223,10 @@ def test_search_by_image_guards(tmp_path, monkeypatch):
         Image.new("RGB", (8, 8)).save(up)
         # 未启用图像嵌入(cn-clip 缺失)
         m._image_embedder, m._image_checked = None, True
-        r = client.post("/search/image",
+        r = client.post("/api/search/image",
                         files={"file": ("q.jpg", up.read_bytes(), "image/jpeg")})
         assert r.status_code == 503
-        assert "未启用" in r.text
+        assert r.json()["error"]["code"] == "image_search_disabled"
 
 
 def test_item_similar_image_from_stored_frame(tmp_path, monkeypatch):
@@ -244,11 +248,17 @@ def test_item_similar_image_from_stored_frame(tmp_path, monkeypatch):
 
         html = client.get(f"/items/{item}").text
         assert "找相似画面" in html
+        assert f"/search?similar={item}:{chunk_id}" in html      # 跳 Vue 检索页
 
-        r = client.post(f"/items/{item}/similar-image",
-                        data={"chunk_id": str(chunk_id)})
+        r = client.post(f"/api/items/{item}/similar-image",
+                        json={"chunk_id": chunk_id})
         assert r.status_code == 200
-        assert "冰淇淋视频" in r.text
+        d = r.json()["data"]
+        assert d["items"][0]["item"]["title"] == "冰淇淋视频"
+        assert d["query_image"].endswith("a.jpg")
+        # 不存在的画面块 → 统一失败契约
+        bad = client.post(f"/api/items/{item}/similar-image", json={"chunk_id": 9999})
+        assert bad.status_code == 404 and bad.json()["error"]["code"] == "not_found"
 
 
 # ── ② 商品主图入库 ────────────────────────────────────────────────
