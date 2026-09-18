@@ -106,6 +106,8 @@ v0.1 核心完成:多模态采集(视频/网页/商品/文档)→ 本地记忆�
   数据走 `/api/inbox`、`/api/items`、`/api/search/images`。**回退方式 = revert 对应提交**
   (旧模板在 git 历史里)。组件复用既有 class,所以三个主题照旧生效。
 - **迁移已完成**:Jinja2 只剩 `base.html`(导航 + 主题);9 个页面模板都是"挂载点 + script"。
+  前端约定/加页面步骤/踩坑清单见 **`web/README.md`**;可展示证据(9 张截图 + 接口清单)
+  在 **`docs/screenshots/`** 与 **`docs/api.md`**,用 `python temp/make_evidence.py` 一键刷新。
   今后加页面/改数据:接口放 `memvault/server/api.py`(统一契约 `{ok,data,error}`,
   错误映射只对 `/api` 生效),视图放 `web/src/views/` 并在 `vite.config.js` 加入口,
   改完 `cd web && npm run build`。页面断言一律改"外壳 + 接口"断言。
