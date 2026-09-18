@@ -5,24 +5,23 @@
  * 数据:GET /api/settings;动作:POST /api/settings、POST /api/settings/test
  */
 import { computed, onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, api, settingsApi } from '../api/client.js'
 
 const s = ref({ llm: {}, asr: {}, embedding: {}, vision: {}, frames: {}, links: {} })
 const loading = ref(true)
 const busy = ref(false)
-const toast = ref(null)
 const testResult = ref(null)
 const keyInput = ref('')
 
-const form = ref({ backend: 'api', base_url: '', model: '', classify_confidence: 0.8 })
+const form = ref({ backend: 'api', base_url: '', model: '', classify_confidence: 0.8,
+                   ads_policy: 'ignore' })
 const keyHint = computed(() => keyInput.value
   ? '将替换现有 key'
   : (s.value.llm?.api_key_set ? '已配置(留空则不改动)' : '未配置'))
 
-function flash(kind, text) {
-  toast.value = { kind, text }
-  setTimeout(() => { if (toast.value?.text === text) toast.value = null }, 6000)
-}
+const flash = (kind, text) => showToast(kind, text)
 
 async function load() {
   loading.value = true
@@ -33,6 +32,7 @@ async function load() {
       base_url: s.value.llm.base_url || '',
       model: s.value.llm.model || '',
       classify_confidence: s.value.llm.classify_confidence ?? 0.8,
+      ads_policy: s.value.llm.ads_policy || 'ignore',
     }
   } catch (e) {
     flash('err', e instanceof ApiError ? e.message : String(e))
@@ -74,12 +74,7 @@ onMounted(load)
 <template>
   <div>
     <h3 style="margin:4px 0 12px">设置</h3>
-
-    <div v-if="toast" class="card">
-      <span :class="toast.kind === 'err' ? 'tag warn' : 'tag'">
-        {{ toast.kind === 'err' ? '出错' : '完成' }}</span>
-      <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-    </div>
+    <ToastHost />
 
     <div class="card">
       <h3>LLM 通道</h3>
@@ -106,6 +101,13 @@ onMounted(load)
           <input v-model.number="form.classify_confidence" type="number" step="0.05" min="0" max="1"
                  style="width:120px;padding:6px 10px;border:1px solid var(--input-border);border-radius:6px">
         </label>
+        <label>视频/页面里的广告信息
+          <select v-model="form.ads_policy"
+                  style="padding:6px 8px;border:1px solid var(--input-border);border-radius:6px">
+            <option value="ignore">忽略(不写进 AI 属性,保持内容干净)</option>
+            <option value="mention">说明(单独一条「推广信息」属性)</option>
+          </select>
+        </label>
         <div style="display:flex;gap:8px;align-items:center">
           <button :disabled="busy">保存并生效</button>
           <button type="button" class="ghost" :disabled="busy" @click="testConn">🔌 测试连接</button>
@@ -129,6 +131,8 @@ onMounted(load)
             <td>{{ s.vision.image_embed?.enabled }}(Chinese-CLIP,缺权重自动跳过)</td></tr>
         <tr><th>双链</th>
             <td>阈值 {{ s.links.similarity_threshold }} · 每条最多 {{ s.links.max_per_item }} 条</td></tr>
+        <tr><th>广告处理</th>
+            <td>{{ s.llm.ads_policy === 'mention' ? '单独列为「推广信息」属性' : '忽略(不写进属性)' }}</td></tr>
         <tr><th>文本嵌入</th>
             <td>{{ s.embedding.text_model }}{{ s.embedding.fake ? '(fake 模式)' : '' }}</td></tr>
       </table>

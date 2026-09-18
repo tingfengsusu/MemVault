@@ -4,12 +4,13 @@
  * 数据:GET /api/jobs
  */
 import { computed, onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, api } from '../api/client.js'
 
 const jobs = ref([])
 const filter = ref('')
 const loading = ref(true)
-const toast = ref(null)
 
 const shown = computed(() => filter.value
   ? jobs.value.filter(j => j.status === filter.value)
@@ -25,7 +26,7 @@ async function load() {
     const d = await api.get('/api/jobs', { limit: 50 })
     jobs.value = d.items
   } catch (e) {
-    toast.value = { kind: 'err', text: e instanceof ApiError ? e.message : String(e) }
+    flash('err', e instanceof ApiError ? e.message : String(e))
   } finally {
     loading.value = false
   }
@@ -59,11 +60,7 @@ onMounted(load)
         {{ { failed: '失败', running: '处理中', pending: '排队中', done: '完成' }[s] }}({{ counts[s] || 0 }})
       </a>
     </div>
-
-    <div v-if="toast" class="card">
-      <span class="tag warn">出错</span>
-      <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-    </div>
+    <ToastHost />
 
     <div v-for="j in shown" :key="j.id" class="card">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">

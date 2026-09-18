@@ -112,3 +112,26 @@ def test_settings_masks_api_key(client_env):
     assert "api_key" not in data["llm"]                   # 接口不含明文字段
     assert data["llm"]["api_key_set"] is True
     assert "sk-abc" not in str(data)                      # 任何字段都不泄露前缀
+
+
+def test_settings_ads_policy_roundtrip(client_env):
+    """广告处理开关:保存到 config.yaml 并即时生效(默认 ignore)。"""
+    client, app, cfg, cfg_file, tmp_path = client_env
+    d = client.get("/api/settings").json()["data"]
+    assert d["llm"]["ads_policy"] == "ignore"          # 默认忽略广告
+
+    r = client.post("/api/settings", json={
+        "backend": "api", "base_url": "https://api.example.com/v1",
+        "model": "m", "api_key": "", "classify_confidence": 0.8,
+        "ads_policy": "mention"})
+    assert r.json()["data"]["ads_policy"] == "mention"
+    saved = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert saved["llm"]["ads_policy"] == "mention"
+    assert app.state.cfg["llm"]["ads_policy"] == "mention"     # 即时生效
+
+    # 非法值回落为 ignore
+    r2 = client.post("/api/settings", json={
+        "backend": "api", "base_url": "https://api.example.com/v1",
+        "model": "m", "api_key": "", "classify_confidence": 0.8,
+        "ads_policy": "whatever"})
+    assert r2.json()["data"]["ads_policy"] == "ignore"

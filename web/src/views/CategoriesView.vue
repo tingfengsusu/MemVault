@@ -4,6 +4,8 @@
  * 数据:/api/categories;动作:POST /api/categories[/confirm|/delete]、/api/up/{mid}/unbind
  */
 import { onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, api, categoryApi } from '../api/client.js'
 
 const groups = ref({})
@@ -11,13 +13,9 @@ const domains = ref([])
 const upRules = ref([])
 const loading = ref(true)
 const busy = ref(false)
-const toast = ref(null)
 const form = ref({ domain: '', name: '' })
 
-function flash(kind, text) {
-  toast.value = { kind, text }
-  setTimeout(() => { if (toast.value?.text === text) toast.value = null }, 5000)
-}
+const flash = (kind, text) => showToast(kind, text)
 
 async function load() {
   loading.value = true
@@ -97,12 +95,7 @@ onMounted(load)
 <template>
   <div>
     <h3 style="margin:4px 0 12px">分类树</h3>
-
-    <div v-if="toast" class="card">
-      <span :class="toast.kind === 'err' ? 'tag warn' : 'tag'">
-        {{ toast.kind === 'err' ? '出错' : '完成' }}</span>
-      <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-    </div>
+    <ToastHost />
 
     <div class="card">
       <form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"

@@ -155,6 +155,13 @@ HF_HUB_OFFLINE=1 .venv\Scripts\python -m memvault tray      # 或 run_tray.py
 
 - **启动必须 `HF_HUB_OFFLINE=1`**(模型已缓存;否则 hf-mirror 不通时会卡启动几分钟)
 - 服务重启较慢属正常(加载 bge 模型);不要重复启动,单实例有 health 检查保护
+- **提取提示词 v2**:按内容形态给属性名 + 并列对象逐个展开 + 数值保留原样;
+  出厂版会在启动时自动升级(被改写过的保留,旧版可回滚)。
+- **广告开关** `llm.ads_policy`:ignore(默认,广告不写进属性)/ mention(单独一条
+  「推广信息」);提示词占位符 `{ads_policy}` 注入,老提示词运行期追加该策略;
+  设置页有下拉,改完即生效(无需重启)。
+- **前端反馈**:提示统一走右下角悬浮 `ToastHost`(不随滚动跑掉);条目详情页动作按钮
+  有「⏳ 正在排队… / ✓ 已排入队列」状态,点击处立刻可见。
 - **OCR 依赖已装**:`easyocr 1.7.2` + `torchvision 0.29.0`(torch 2.14.0+cpu 未变,
   即 OCR 只能跑 CPU;ASR 的 GPU 来自 CTranslate2,与 torch 无关)。
   EasyOCR 默认参数 5.5s/帧,已调成 `canvas_size=960, mag_ratio=1.0` → 1.17s/帧

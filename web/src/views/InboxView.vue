@@ -5,6 +5,8 @@
  * 样式沿用面板既有 class(card/tag/muted/chips…),因此三个主题(theme.css)照旧生效。
  */
 import { computed, onMounted, ref } from 'vue'
+import ToastHost from '../components/ToastHost.vue'
+import { showToast } from '../lib/toast.js'
 import { ApiError, inboxApi } from '../api/client.js'
 
 const props = defineProps({
@@ -28,10 +30,7 @@ const allSelected = computed(
 const selectedIds = computed(() => [...selected.value])
 const scopeLabel = computed(() => (domain.value ? `${domain.value} 领域` : '全部领域'))
 
-function flash(kind, text) {
-  toast.value = { kind, text }
-  setTimeout(() => { if (toast.value?.text === text) toast.value = null }, 4000)
-}
+const flash = (kind, text) => showToast(kind, text)
 
 async function load() {
   loading.value = true
@@ -113,12 +112,7 @@ onMounted(load)
       待整理箱({{ total }})
       <span v-if="loading" class="muted" style="font-weight:400;font-size:13px">加载中…</span>
     </h3>
-
-    <div v-if="toast" class="card" :style="{ borderColor: toast.kind === 'err' ? '#c0392b' : 'var(--card-border)' }">
-      <span :class="toast.kind === 'err' ? 'tag warn' : 'tag'">
-        {{ toast.kind === 'err' ? '出错' : '完成' }}</span>
-      <span class="muted" style="margin-left:8px">{{ toast.text }}</span>
-    </div>
+    <ToastHost />
 
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
