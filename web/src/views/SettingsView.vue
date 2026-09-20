@@ -245,7 +245,8 @@ onMounted(() => { load(); loadBindings() })
             <td>
               <b>主路径 · 结构单元化</b>:{{ s.frames.unit === 'off' ?
                 '已关闭(全部回退到均匀抽帧)' :
-                'auto(字幕类视频按动作事件/成品展示落库,帧数 = 单元数 × 2;单元数上限 ' +
+                'auto(画像判定「字幕为主」的视频:按动作事件/成品展示落库,' +
+                 '帧数 = 单元数 × 2;单元数上限 ' +
                  (s.frames.max_units || '无') + ')' }}<br>
               <b>兜底路径 · 均匀抽帧</b>(未命中单元化时用:旁白类视频、探针判不出、
               unit=off 回退;上限 {{ s.frames.max_frames }} 帧,间隔 {{ s.frames.frame_interval }}s、
@@ -253,6 +254,8 @@ onMounted(() => { load(); loadBindings() })
               <span class="muted">— 上限只限数量:间隔会自动放大,帧仍铺满全片</span><br>
               <span class="muted">本库用法:结构单元化 {{ s.usage?.unitized ?? 0 }} 条视频 /
                 均匀抽帧 {{ s.usage?.uniform ?? 0 }} 条(共 {{ s.usage?.videos ?? 0 }} 条)</span><br>
+              <span class="muted">品类(分类树)本应只用于选「先验配置」;该预置目前未做,
+                实际只有画像这一条判据(未命中 → 纯预处理兜底)</span><br>
               <span class="muted">解码:{{ s.frames.decode === 'seek' ? '逐点定位(慢)' : '顺序解码(快)' }} ·
               画像探针:{{ s.frames.probe?.enabled }} · {{ s.frames.probe?.hz }}Hz ·
               {{ s.frames.probe?.bands }} 条带 · 分离度 ≥{{ s.frames.probe?.min_separation }}×</span>
