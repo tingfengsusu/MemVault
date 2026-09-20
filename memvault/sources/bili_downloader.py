@@ -407,6 +407,8 @@ class BiliDownloader:
 
         # 2. 获取 cid
         page_list = self.api.get_page_list(bvid)
+        if page_list:
+            self.last_meta["cid"] = page_list[0].get("cid")
         if not page_list:
             raise RuntimeError(f"无法获取分P信息，请检查 BV 号: {bvid}")
         cid = page_list[0]["cid"]

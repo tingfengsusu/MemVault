@@ -313,10 +313,20 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
     # 购物复盘 profile:把「关键片段」落成 clips(购物稿 ②);边界吸附到结构单元
     clips = []
     if profile_name and isinstance(resp.get("关键片段"), list):
-        from memvault.links import snap_clips_to_units
+        import os as _os
 
-        clips = snap_clips_to_units(memory, item_id, resp["关键片段"])
+        snap_on = str(((cfg or {}).get("clips") or {}).get("snap", "on")).lower() != "off"
+        if snap_on:
+            from memvault.links import snap_clips_to_units
+
+            clips = snap_clips_to_units(memory, item_id, resp["关键片段"])
+        else:   # 回退:直接用 LLM 给的边界
+            clips = [{"start_ts": float(c.get("start") or 0.0),
+                      "end_ts": (float(c["end"]) if c.get("end") is not None else None),
+                      "kind": c.get("kind") or "片段", "reason": c.get("reason"),
+                      "confidence": c.get("confidence")}
+                     for c in resp["关键片段"] if c.get("start") is not None]
         n = memory.db.set_clips(item_id, clips)
-        logger.info("item=%s 关键片段入库 %d 条", item_id, n)
+        logger.info("item=%s 关键片段入库 %d 条(snap=%s)", item_id, n, snap_on)
     return {"attrs": extracted, "category": cat_name,
             "profile": profile_name, "clips": len(clips)}

@@ -209,7 +209,13 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
     want_ocr, reason = should_ocr(cfg, speech_seconds, duration)
     ocr = OcrReader() if want_ocr else None
     profile = None
-    if want_ocr and _probe_enabled(cfg):
+    cached_profile = None
+    if want_ocr and meta.get("up_mid"):
+        cached_profile = memory.db.frames_profile(meta["up_mid"])
+    if want_ocr and _probe_enabled(cfg) and cached_profile:
+        # 该 UP 有缓存画像:先按缓存判断能否直接复用(省一次"文字证据"OCR)
+        progress(f"该 UP 有画像缓存(字幕带 {cached_profile['subtitle_bands']}),"
+                 f"本次仍跑探针做校验")
         profile = frames_mod_probe.probe_video(
             video_path, speech_seconds=speech_seconds, ocr=ocr,
             hz=float((fcfg.get("probe") or {}).get("hz", 5.0)),
@@ -219,6 +225,16 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
         progress(f"视频画像:字幕带 {profile.subtitle_bands or '未判出'} / "
                  f"事件 {profile.event_count} 个 / {profile.probe_seconds:.0f}s"
                  + (f" / 异常 {profile.anomalies}" if profile.anomalies else ""))
+        # 第 4 步:与缓存画像比对 —— 不符合该 UP 常规形态时提示用户(仍继续,用本次画像)
+        if cached_profile:
+            from memvault.vision.frames_probe import validate_against
+
+            ok_cached, why = validate_against(profile, cached_profile)
+            if ok_cached:
+                progress(f"画像校验:{why}(该 UP 的缓存可用)")
+            else:
+                progress(f"⚠ 不符合该 UP 常规形态:{why} —— 按全自动处理并提示")
+                profile.anomalies.append(f"up_profile_mismatch: {why}")
 
     # 6) 结构单元化(字幕类视频):动作事件 + 成品展示 → 单元帧
     units = []
@@ -335,7 +351,34 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
         media_paths=[f["path"] for f in frame_list],
     )
 
-    # 10) 清理临时视频(帧图保留)
+    # 10a) 画像回写:该 UP 的常规形态(下次可省一次判定)
+    if profile is not None and profile.ok and meta.get("up_mid"):
+        try:
+            from memvault.vision.frames_probe import profile_payload
+
+            memory.db.save_frames_profile(meta["up_mid"], profile_payload(profile))
+            progress(f"已缓存 UP {meta.get('up') or meta['up_mid']} 的画像")
+        except Exception as e:  # noqa: BLE001 — 缓存失败不影响采集
+            logger.info("画像缓存失败:%s", e)
+
+    # 10) 弹幕广告段标注(设计稿第 5 步):观众比 UP 更早承认"这段是广告"
+    dcfg = (cfg.get("vision") or {}).get("danmaku") or {}
+    if meta.get("cid") and str(dcfg.get("enabled", "auto")).lower() != "off":
+        try:
+            from memvault.sources.bili_danmaku import mark_ad_segments
+
+            segs = mark_ad_segments(
+                memory, item_id, meta["cid"],
+                cookies_path=(cfg.get("bili") or {}).get("cookies_path"),
+                window=float(dcfg.get("window", 10.0)),
+                min_hits=int(dcfg.get("min_hits", 2)))
+            if segs:
+                progress("弹幕判出广告段:" + ", ".join(
+                    f"{a:.0f}~{b:.0f}s" for a, b in segs))
+        except Exception as e:  # noqa: BLE001 — 弹幕拿不到不影响采集
+            logger.info("弹幕广告段标注跳过:%s", e)
+
+    # 11) 清理临时视频(帧图保留)
     if temp_video is not None and not cfg.get("keep_video"):
         try:
             shutil.rmtree(temp_video.parent / "_downloads", ignore_errors=True)

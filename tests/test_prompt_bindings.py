@@ -135,3 +135,87 @@ def test_prompt_bindings_table_exists_in_schema():
 
     assert "prompt_bindings" in SCHEMA and "CREATE TABLE IF NOT EXISTS clips" in SCHEMA
     assert "stage" in SCHEMA           # frames/extract/clip 共用一张表(红线③)
+
+
+# ── 第 4 步:UP 画像缓存与校验 ────────────────────────────────────────
+def _prof(bands=((0.5, 0.542),), events=80, duration=400.0, speech=0.08):
+    from memvault.vision.frames_probe import VideoProfile
+
+    p = VideoProfile(ok=True, duration=duration, events=[(i * 5.0, i * 5.0 + 3) for i in range(events)],
+                     subtitle_bands=list(bands), speech_ratio=speech)
+    return p
+
+
+def test_frames_profile_cache_roundtrip(memory):
+    """画像缓存在 prompt_bindings(stage='frames'),不另建规则表。"""
+    from memvault.vision.frames_probe import profile_payload
+
+    assert memory.db.frames_profile("777") is None
+    memory.db.save_frames_profile("777", profile_payload(_prof()))
+    got = memory.db.frames_profile("777")
+    assert got["subtitle_bands"][0] == [0.5, 0.542]
+    assert got["event_hz"] and got["speech_ratio"] == 0.08
+    n = memory.db.unbind_prompt("up", "777", stage="frames")
+    assert n == 1 and memory.db.frames_profile("777") is None
+
+
+def test_validate_against_cached_profile():
+    """偏离字幕带/事件频率/人声占比 → 判"不符合该 UP 常规形态"。"""
+    from memvault.vision.frames_probe import profile_payload, validate_against
+
+    cached = profile_payload(_prof())
+    ok, why = validate_against(_prof(), cached)
+    assert ok and "符合" in why
+    # 字幕带位置大幅偏移(>5% 画面高)
+    ok2, why2 = validate_against(_prof(bands=((0.72, 0.76),)), cached)
+    assert not ok2 and "偏移" in why2
+    # 人声占比跳到另一档(旁白视频)
+    ok3, why3 = validate_against(_prof(speech=0.75), cached)
+    assert not ok3 and "人声" in why3
+    # 没判出字幕带
+    ok4, why4 = validate_against(_prof(bands=()), cached)
+    assert not ok4 and "没判出" in why4
+
+
+# ── 第 5 步:弹幕广告段 ──────────────────────────────────────────────
+def test_detect_ad_segments_votes_by_window():
+    """同一时间窗内 ≥2 条广告词才算广告段;零散玩笑话被滤掉(实测 339/349s)。"""
+    from memvault.sources.bili_danmaku import detect_ad_segments
+
+    danmaku = [
+        {"ts": 175.0, "text": "本期由旺仔牛奶赞助"},
+        {"ts": 176.0, "text": "谢谢金主妈妈"},
+        {"ts": 180.0, "text": "感谢金主爸爸"},
+        {"ts": 178.0, "text": "金主妈妈好"},
+        {"ts": 184.0, "text": "谢谢金主妈妈"},
+        {"ts": 339.0, "text": "金主又来代言了"},   # 零散玩笑(单条)
+        {"ts": 349.0, "text": "甲方真会挑人"},     # 零散玩笑(隔了 10s)
+        {"ts": 100.0, "text": "这个配方不错"},     # 无关
+    ]
+    segs = detect_ad_segments(danmaku, window=10, min_hits=2)
+    assert segs == [(170.0, 190.0)]
+    # 提高门槛到 3 条 → 只剩最密集的那个窗(170~180s)
+    assert detect_ad_segments(danmaku, window=10, min_hits=3) == [(170.0, 180.0)]
+    assert detect_ad_segments([], window=10, min_hits=2) == []
+    assert detect_ad_segments([{"ts": 1.0, "text": "普通"}], ) == []
+
+
+def test_danmaku_bare_deflate_decode():
+    """裸 deflate(finish=length 之外的坑):注释里记的是 Content-Encoding: deflate。"""
+    import zlib
+
+    xml = ('<?xml version="1.0"?><i><d p="175.0,1,25,16777215">本期由旺仔牛奶赞助</d></xml>')
+    bare = zlib.compress(xml.encode("utf-8"))[2:-4]      # 去掉 zlib 头尾 = 裸 deflate
+    import re
+
+    from memvault.sources.bili_danmaku import _AD_RE
+
+    text = zlib.decompress(bare, -15).decode("utf-8")
+    assert _AD_RE.search(text)
+
+
+def test_clips_snap_switch_config():
+    """吸附开关(clips.snap=off 回退到 LLM 原始边界)。"""
+    from memvault.config import DEFAULTS
+
+    assert DEFAULTS["clips"]["snap"] in ("on", "off")

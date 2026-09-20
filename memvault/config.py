@@ -33,7 +33,8 @@ DEFAULTS = {
                        # band=auto 时按探针的字幕带裁切(水印 85%→0%);
                        # off 回全幅;全幅通道每 full_every 帧补一次(卖点浮层用)
                        "band": "auto", "full_every": 5},
-               "image_embed": {"enabled": "auto"}},
+               "image_embed": {"enabled": "auto"},
+               "danmaku": {"enabled": "auto", "window": 10.0, "min_hits": 2}},
     "bili": {"quality": 64, "cookies_path": None},
     "keep_video": False,
     "server": {"host": "127.0.0.1", "port": 8765},
@@ -58,6 +59,8 @@ DEFAULTS = {
     # 新口径 = AI 摘要画像文本 + top-3 块相似度均值
     "links": {"similarity_threshold": 0.62, "max_per_item": 3,
               "candidate_chunks": 40},
+    # 关键片段边界是否吸附到结构单元(off = 用 LLM 原始边界,回退档)
+    "clips": {"snap": "on"},
 }
 
 

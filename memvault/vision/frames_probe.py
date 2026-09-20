@@ -410,3 +410,50 @@ def probe_video(video_path, speech_seconds: float | None = None,
     prof.probe_seconds = time.perf_counter() - t0
     logger.info("探针画像:%s", prof.summary())
     return prof
+
+PROFILE_TOLERANCE = {
+    "band_shift": 0.05,      # 字幕带位置允许偏移 5% 画面高
+    "rate_ratio": 3.0,       # 字幕换行频率同量级(≤3 倍)
+    "speech_delta": 0.35,    # 人声占比同档(±0.35)
+}
+
+
+def validate_against(profile: VideoProfile, cached: dict,
+                     tol: dict | None = None) -> tuple[bool, str]:
+    """拿本次探针结果校验"是否仍符合该 UP 的常规形态"(设计稿 §2.6)。
+
+    返回 (是否符合, 说明)。任一项明显偏离就判不符合 → 调用方走全自动并提示用户。
+    """
+    tol = {**PROFILE_TOLERANCE, **(tol or {})}
+    if not cached or not cached.get("subtitle_bands"):
+        return False, "没有可用缓存"
+    if not profile.subtitle_bands:
+        return False, "本次没判出字幕带"
+    cb, nb = cached["subtitle_bands"][0], profile.subtitle_bands[0]
+    shift = abs(float(cb[0]) - float(nb[0]))
+    if shift > tol["band_shift"]:
+        return False, f"字幕带位置偏移 {shift*100:.0f}%(> {tol['band_shift']*100:.0f}%)"
+    chz, nhz = cached.get("event_hz"), None
+    if chz and profile.duration:
+        nhz = profile.event_count / profile.duration
+        ratio = max(nhz, chz) / max(1e-6, min(nhz, chz))
+        if ratio > tol["rate_ratio"]:
+            return False, f"事件频率差 {ratio:.1f} 倍(> {tol['rate_ratio']})"
+    cs, ns = cached.get("speech_ratio"), profile.speech_ratio
+    if cs is not None and ns is not None and abs(float(cs) - float(ns)) > tol["speech_delta"]:
+        return False, f"人声占比差 {abs(cs-ns):.2f}(> {tol['speech_delta']})"
+    return True, "符合该 UP 常规形态"
+
+
+def profile_payload(profile: VideoProfile) -> dict:
+    """把探针结果压成可缓存的画像(只存判定与校验要用的字段)。"""
+    return {
+        "subtitle_bands": [(round(a, 4), round(b, 4)) for a, b in profile.subtitle_bands],
+        "watermark_bands": [(round(a, 4), round(b, 4)) for a, b in profile.watermark_bands],
+        "event_count": profile.event_count,
+        "event_hz": ((profile.event_count / profile.duration)
+                     if profile.duration else None),
+        "speech_ratio": profile.speech_ratio,
+        "duration": round(profile.duration, 1),
+        "hz": profile.used_hz,
+    }

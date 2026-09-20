@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS prompt_bindings (
   priority    INTEGER DEFAULT 0,
   enabled     INTEGER DEFAULT 1,
   note        TEXT,
+  payload     TEXT,                   -- stage='frames' 时存该 UP 的画像 JSON
   created_at  TEXT DEFAULT (datetime('now', 'localtime')),
   UNIQUE(kind, target, stage)
 );
@@ -224,6 +225,11 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN auto_note TEXT")
         if not has_col("watch_sources", "label"):
             conn.execute("ALTER TABLE watch_sources ADD COLUMN label TEXT")
+        if not has_col("prompt_bindings", "payload"):
+            try:
+                conn.execute("ALTER TABLE prompt_bindings ADD COLUMN payload TEXT")
+            except sqlite3.OperationalError:
+                pass
         if not has_col("items", "attrs_ai"):
             conn.execute("ALTER TABLE items ADD COLUMN attrs_ai TEXT DEFAULT '{}'")
             # 一次性迁移:历史的 AI 提取属性挪到 attrs_ai
@@ -644,6 +650,33 @@ class Database:
             " note=excluded.note, enabled=1",
             (kind, str(target), stage, prompt_name, priority, note))
         conn.commit()
+
+    def save_frames_profile(self, up_mid, payload: dict):
+        """把某 UP 的画像缓存进 prompt_bindings(stage='frames',kind='up')。"""
+        import json as _json
+
+        self.bind_prompt("up", str(up_mid), "cached_profile", stage="frames",
+                         note="探针画像缓存")
+        conn = self._conn()
+        conn.execute(
+            "UPDATE prompt_bindings SET payload=? WHERE kind='up' AND target=?"
+            " AND stage='frames'",
+            (_json.dumps(payload, ensure_ascii=False), str(up_mid)))
+        conn.commit()
+
+    def frames_profile(self, up_mid) -> dict | None:
+        """取某 UP 的缓存画像(没有则 None)。"""
+        import json as _json
+
+        row = self._conn().execute(
+            "SELECT payload FROM prompt_bindings WHERE kind='up' AND target=?"
+            " AND stage='frames' AND enabled=1", (str(up_mid),)).fetchone()
+        if not row or not row["payload"]:
+            return None
+        try:
+            return _json.loads(row["payload"])
+        except (TypeError, ValueError):
+            return None
 
     def unbind_prompt(self, kind: str, target: str, stage: str = "extract") -> int:
         conn = self._conn()
