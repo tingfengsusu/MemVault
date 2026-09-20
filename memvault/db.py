@@ -129,6 +129,36 @@ CREATE TABLE IF NOT EXISTS up_categories (
   category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   created_at  TEXT DEFAULT (datetime('now', 'localtime'))
 );
+
+-- 提示词规则绑定:某类条目(UP集/领域/来源/关键词)走指定提示词 profile。
+-- 与 up_categories 同层:命中即确定性生效,不调 LLM 判断。
+-- stage: extract(提取) / router(分类) / frames(抽帧画像缓存) / clip(片段)
+CREATE TABLE IF NOT EXISTS prompt_bindings (
+  id          INTEGER PRIMARY KEY,
+  kind        TEXT NOT NULL,          -- up | up_set | domain | source_type | keyword
+  target      TEXT NOT NULL,          -- up_mid / "123,456" / 'shopping' / 'video' / 关键词
+  stage       TEXT NOT NULL DEFAULT 'extract',
+  prompt_name TEXT NOT NULL,          -- 指向 prompts.name
+  priority    INTEGER DEFAULT 0,
+  enabled     INTEGER DEFAULT 1,
+  note        TEXT,
+  created_at  TEXT DEFAULT (datetime('now', 'localtime')),
+  UNIQUE(kind, target, stage)
+);
+
+-- 结构单元片段(购物稿"关键片段定位"的落点):LLM 只打 kind/reason,
+-- 边界吸附到结构单元边界(设计稿 §3 接口约定 4)
+CREATE TABLE IF NOT EXISTS clips (
+  id         INTEGER PRIMARY KEY,
+  item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  start_ts   REAL NOT NULL,
+  end_ts     REAL,
+  kind       TEXT NOT NULL,           -- 价格播报|卖点演示|对比|上身效果|尺码建议|广告
+  reason     TEXT,
+  confidence REAL,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_clips_item ON clips(item_id);
 CREATE INDEX IF NOT EXISTS idx_links_b ON links(item_b);
 """
 
@@ -600,6 +630,61 @@ class Database:
             lst.sort(key=lambda x: -x["score"])
             out[me] = lst[:limit_per]
         return out
+
+    # ── 提示词规则绑定(购物稿 ①)────────────────────────────────────
+    def bind_prompt(self, kind: str, target: str, prompt_name: str,
+                    stage: str = "extract", priority: int = 0, note: str = None):
+        """绑定一条规则:满足 kind/target 的条目走 prompt_name 的提示词。"""
+        conn = self._conn()
+        conn.execute(
+            "INSERT INTO prompt_bindings(kind, target, stage, prompt_name,"
+            " priority, note) VALUES(?,?,?,?,?,?)"
+            " ON CONFLICT(kind, target, stage) DO UPDATE SET"
+            " prompt_name=excluded.prompt_name, priority=excluded.priority,"
+            " note=excluded.note, enabled=1",
+            (kind, str(target), stage, prompt_name, priority, note))
+        conn.commit()
+
+    def unbind_prompt(self, kind: str, target: str, stage: str = "extract") -> int:
+        conn = self._conn()
+        n = conn.execute(
+            "DELETE FROM prompt_bindings WHERE kind=? AND target=? AND stage=?",
+            (kind, str(target), stage)).rowcount
+        conn.commit()
+        return n
+
+    def prompt_bindings(self, stage: str = None, enabled_only: bool = True) -> list[dict]:
+        sql = "SELECT * FROM prompt_bindings"
+        where, args = [], []
+        if stage:
+            where.append("stage=?"); args.append(stage)
+        if enabled_only:
+            where.append("enabled=1")
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        return self._rows(self._conn().execute(
+            sql + " ORDER BY priority DESC, id", args))
+
+    # ── 结构单元片段(购物稿 ②)──────────────────────────────────────
+    def set_clips(self, item_id: int, clips: list[dict]) -> int:
+        """整体替换某条目的片段(重跑幂等)。clips: [{start_ts,end_ts,kind,reason,confidence}]"""
+        conn = self._conn()
+        conn.execute("DELETE FROM clips WHERE item_id=?", (item_id,))
+        for c in clips or []:
+            conn.execute(
+                "INSERT INTO clips(item_id, start_ts, end_ts, kind, reason,"
+                " confidence) VALUES(?,?,?,?,?,?)",
+                (item_id, float(c.get("start_ts") or 0.0),
+                 (float(c["end_ts"]) if c.get("end_ts") is not None else None),
+                 str(c.get("kind") or "片段"), c.get("reason"),
+                 (float(c["confidence"]) if c.get("confidence") is not None
+                  else None)))
+        conn.commit()
+        return len(clips or [])
+
+    def clips_for_item(self, item_id: int) -> list[dict]:
+        return self._rows(self._conn().execute(
+            "SELECT * FROM clips WHERE item_id=? ORDER BY start_ts", (item_id,)))
 
     # ── UP主 → 分类 规则 ───────────────────────────────────────────
     def bind_up_category(self, up_mid, up_name, category_id):

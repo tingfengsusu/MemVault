@@ -625,3 +625,43 @@ UP主 绑定(下拉 + 解绑)/ 重新分析 / 加购 / 以画面找相似 / 状�
 
 **尚未做**:第 4/5/6 步(UP 缓存校验、弹幕广告段标记、clips 边界吸附)——按设计稿顺序
 它们排在购物稿 ①② 之后;上一节记的"clips 带广告段标记"验收项也属第 5 步。
+
+---
+
+## 2026-09-20 购物稿 ①②:提示词规则绑定 + 关键片段(clips)
+
+按 `docs/design-shopping-review.md` 的实现顺序,先做 ①(规则化提示词)与 ②(片段落库+时间轴)。
+
+### ① prompt_bindings 表 + 规则解析
+
+- 新表 `prompt_bindings(kind, target, stage, prompt_name, priority, enabled, note)`,
+  kind = `up | up_set | domain | source_type | keyword`,stage 复用它自己的列
+  (`extract/router/frames/clip` 一张表,**不另建规则表**——抽帧设计稿红线③);
+- `prompts.resolve_prompt_name()`:按 **UP → UP集 → 领域 → 来源 → 关键词** 顺序命中,
+  命中即确定性生效(不调 LLM 判断);`extract_item` 前置一步,未命中完全走原逻辑(零回归);
+- 新增种子提示词 `shopping_review`(商品/卖点/目标人群/内容结构/关键片段/内容标签/模态说明,
+  每条结论要求带 `ts` 证据),`ensure_seed` 自动建。
+
+### ② clips 表 + 边界吸附 + 面板时间轴
+
+- 新表 `clips(item_id, start_ts, end_ts, kind, reason, confidence)`;
+- `links.snap_clips_to_units()`:把 LLM 给的片段边界**吸附到结构单元边界**(第 3 步产出的单元块),
+  非法/过短/跨单元片段按规则丢弃或扩到单元两侧;没有单元块时原样返回;
+- `extract_item` 命中 profile 时把「关键片段」写入 clips(整体替换,幂等);
+- `/api/items/{id}` 暴露 `clips`(含 `start_label`/`end_label`/`jump`),
+  条目页(Vue `ItemView.vue`)渲染片段时间轴,点时间跳 B站 `?t=`。
+
+### 真机验证发现的问题(已修两处,留一处待办)
+
+1. **推理模型把长 schema 的输出截断**:购物复盘 schema 字段多,CC 端点(推理型)在
+   2000/4000 预算下 `finish=length`,8000 才返回内容 —— 且返回的是 `{"type","content"}`
+   这类无关结构。已加两道护栏:`extract_item` 的 **JSON 失败软着陆**(不抛异常、保留原 attrs)
+   与 **schema 校验**(profile 返回不含约定字段时不写库,记 `schema_mismatch`);
+   提示词补了"输出要短"(卖点≤8/片段≤6/证据≤20字)。
+2. **提示词规则的调用链在管理面缺入口**:目前只能用 `db.bind_prompt()` 或脚本绑定,
+   设置页还没有 UI(待办)。
+3. **待办(下一步的理由)**:把"关键片段"拆成**独立的小 schema 调用**(只输出片段数组),
+   比塞进大 schema 更稳 —— 这是本次真机跑出来的直接结论。
+
+测试 +5(bindings 解析优先级/解绑、片段吸附四类边界、profile 命中后写 clips 且幂等、
+API 暴露 clips、表在 SCHEMA 内),全套 **155 passed**。

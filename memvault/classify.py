@@ -256,8 +256,16 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
         if item.get("category_id") else None
     cat_name = category["name"] if category else "通用"
 
+    # 规则绑定优先(购物稿 ①):命中某 profile(如购物复盘)就用它,不吃分类提示词
+    from memvault.prompts import resolve_prompt_name
+
     prompt = None
-    if category:
+    profile_name = resolve_prompt_name(memory, item, stage="extract")
+    if profile_name:
+        prompt = pstore.get_active("extract", profile_name)
+        if prompt is not None:
+            logger.info("item=%s 命中提示词规则 → profile=%s", item_id, profile_name)
+    if prompt is None and category:
         prompt = pstore.get_active("extract", "extract", category["id"])
     if prompt is None:
         prompt = pstore.get_active("extract", "extract", None)
@@ -273,8 +281,25 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
     else:
         system = f"{system}\n- {policy}"
 
-    resp = llm.chat_json(
-        system, f"条目标题:{item['title']}\n条目内容:\n{_extraction_text(item)}")
+    try:
+        resp = llm.chat_json(
+            system, f"条目标题:{item['title']}\n条目内容:\n{_extraction_text(item)}")
+    except Exception as e:  # noqa: BLE001 — 长 schema 可能被推理模型的思考吃光预算
+        # 截断/坏 JSON 不算管线失败:保留原 attrs,跳过本次提取(实测购物复盘 schema 触发过)
+        logger.warning("item=%s 提取失败(JSON 解析/截断):%s", item_id, e)
+        return {"attrs": {}, "category": cat_name, "profile": profile_name,
+                "clips": 0, "error": str(e)}
+
+    # 形状校验:profile 提示词返回的必须含约定字段之一,否则视为"模型没按 schema 答"
+    # (实测推理型模型在长 schema 下会返回 {"type","content"} 这类无关结构,不能写进 attrs)
+    if profile_name:
+        expected = {"商品", "卖点", "关键片段", "内容标签", "目标人群", "内容结构"}
+        if not (expected & set(resp if isinstance(resp, dict) else {})):
+            logger.warning("item=%s profile=%s 返回不符合 schema,键=%s;跳过写入",
+                           item_id, profile_name,
+                           list(resp)[:6] if isinstance(resp, dict) else type(resp))
+            return {"attrs": {}, "category": cat_name, "profile": profile_name,
+                    "clips": 0, "error": "schema_mismatch"}
 
     # 写入独立的 attrs_ai 字段:整体替换保证"重新分析"幂等
     # (attrs_json 保留给采集时预写的原始属性,如商品价格/店铺)
@@ -284,4 +309,14 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
         (json.dumps(extracted, ensure_ascii=False), item_id),
     )
     memory.db._conn().commit()
-    return {"attrs": extracted, "category": cat_name}
+
+    # 购物复盘 profile:把「关键片段」落成 clips(购物稿 ②);边界吸附到结构单元
+    clips = []
+    if profile_name and isinstance(resp.get("关键片段"), list):
+        from memvault.links import snap_clips_to_units
+
+        clips = snap_clips_to_units(memory, item_id, resp["关键片段"])
+        n = memory.db.set_clips(item_id, clips)
+        logger.info("item=%s 关键片段入库 %d 条", item_id, n)
+    return {"attrs": extracted, "category": cat_name,
+            "profile": profile_name, "clips": len(clips)}

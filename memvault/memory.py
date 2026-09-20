@@ -105,7 +105,10 @@ class Memory:
     def add_text_chunks_batch(self, item_id: int, chunks: list[dict]) -> int:
         """批量写入文本块:一次嵌入调用 + 一次向量库 upsert(比逐条快数倍)。
 
-        chunks: [{"content", "start_ts"?, "end_ts"?, "seq"?}, ...]
+        chunks: [{"content", "start_ts"?, "end_ts"?, "seq"?, "media_path"?}, ...]
+
+        media_path 用于"结构单元块":文本与该单元的帧图绑在同一条 chunk(表已支持),
+        检索命中时能直接看到那一刻的画面。
         """
         chunks = [c for c in chunks if (c.get("content") or "").strip()]
         if not chunks:
@@ -123,7 +126,7 @@ class Memory:
             cid = self.db.add_chunk(
                 item_id, "text", content=c["content"],
                 start_ts=c.get("start_ts"), end_ts=c.get("end_ts"),
-                seq=c.get("seq"))
+                seq=c.get("seq"), media_path=c.get("media_path"))
             meta = dict(base_meta)
             if c.get("start_ts") is not None:
                 meta["start_ts"] = c["start_ts"]

@@ -181,6 +181,22 @@ onMounted(() => load())
         </div>
       </div>
 
+      <div v-if="(item.clips || []).length" class="card">
+        <p class="muted" style="margin:0 0 8px">
+          🎬 关键片段(边界吸附到结构单元;点时间跳转到视频对应秒)</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          <span v-for="c in item.clips" :key="'tag' + c.id" class="tag">{{ c.kind }}</span>
+        </div>
+        <div v-for="c in item.clips" :key="c.id"
+             style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--card-border)">
+          <span class="ts">{{ c.start_label }}–{{ c.end_label }}</span>
+          <span class="tag gray">{{ c.kind }}</span>
+          <a v-if="c.jump" class="jump" :href="c.jump" target="_blank">▶ 跳到视频此处</a>
+          <span v-if="c.confidence != null" class="muted">{{ c.confidence.toFixed(2) }}</span>
+          <span class="muted" style="font-size:12px">{{ (c.reason || '').slice(0, 80) }}</span>
+        </div>
+      </div>
+
       <h3 style="margin:18px 0 10px">语义块({{ item.chunks.length }})</h3>
       <div class="card">
         <div v-for="c in item.chunks" :key="c.id" class="chunk">

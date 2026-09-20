@@ -113,6 +113,8 @@ class PromptStore:
     def ensure_seed(self):
         if not self.get_active("router", "classify"):
             self.new_version("router", "classify", ROUTER_PROMPT)
+        if self.get_active("extract", "shopping_review") is None:
+            self.new_version("extract", "shopping_review", SHOPPING_REVIEW_PROMPT)
         active = self.get_active("extract", "extract", None)
         if active is None:
             # 保留 {category} / {ads_policy} 占位符,运行期再替换
@@ -206,3 +208,54 @@ class PromptStore:
                           dimension=resp.get("dimension"),
                           category_id=category_id)
         return {"prompt_id": new_id, "version_note": resp.get("changes", "")}
+
+SHOPPING_REVIEW_PROMPT = """你在为「购物向视频复盘」提取结构化信息(分类:{category} {ads_policy})。只依据给定内容,不要脑补;每条结论都要能指回某个时间戳。
+
+输出 JSON(严格按此结构,不要多余文字):
+{
+  "商品": [{"名称": "", "品类": "", "品牌": "", "价格": "", "优惠": ""}],
+  "卖点": [{"点": "", "证据": "原文片段", "ts": 0.0, "来源": "asr|ocr|frame"}],
+  "目标人群": {"人群": "", "场景": ""},
+  "内容结构": [{"段": "", "start": 0, "end": 0}],
+  "关键片段": [{"start": 0, "end": 0, "kind": "价格播报|卖点演示|对比|上身效果|尺码建议|广告", "reason": "", "confidence": 0.8}],
+  "内容标签": ["风格/场景/季节/材质等标签"],
+  "模态说明": "内容来自口播/画面字幕/画面描述中的哪些"
+}
+
+规则:
+0. **输出要短**:卖点最多 8 条、关键片段最多 6 条、内容结构最多 8 段、
+   标签最多 8 个;证据字段只留原文关键词(≤20 字),不要整段抄写;
+1. 卖点必须给"证据"(原话或画面文字)与 ts(该内容出现的大致秒数);
+2. 关键片段的 start/end 用秒,互相不重叠、按时间升序;没有把握就不要给该片段;
+3. 时间戳只允许取内容里出现过的时间或据此推算,不得虚构;
+4. 内容里没有的字段留空数组/空字符串,不要编造;
+5. 若是纯广告段(无产品信息),在关键片段里用 kind="广告" 标出区间。
+"""
+
+
+def resolve_prompt_name(memory, item: dict, stage: str = "extract") -> str | None:
+    """按规则绑定挑提示词 profile(购物稿 ①):UP/UP集 → 领域 → 来源。
+
+    命中即确定性生效(不调 LLM 判断);没有命中返回 None,调用方走原逻辑。
+    """
+    import json as _json
+
+    try:
+        attrs = _json.loads(item.get("attrs_json") or "{}")
+    except (TypeError, ValueError):
+        attrs = {}
+    up_mid = str(attrs.get("up_mid") or "")
+    rules = memory.db.prompt_bindings(stage=stage)
+    for r in rules:
+        kind, target = r["kind"], str(r["target"] or "")
+        if kind == "up" and up_mid and target == up_mid:
+            return r["prompt_name"]
+        if kind == "up_set" and up_mid and up_mid in [t.strip() for t in target.split(",")]:
+            return r["prompt_name"]
+        if kind == "domain" and target == item.get("domain"):
+            return r["prompt_name"]
+        if kind == "source_type" and target == (item.get("source_type") or ""):
+            return r["prompt_name"]
+        if kind == "keyword" and target and target in (item.get("title") or ""):
+            return r["prompt_name"]
+    return None

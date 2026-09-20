@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import (APIRouter, Body, File, HTTPException, Request, UploadFile)
 from fastapi.exception_handlers import http_exception_handler
 
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PAGE_SIZE = 20
@@ -25,6 +26,16 @@ MAX_PAGE_SIZE = 100
 
 
 # ── 响应契约 ──────────────────────────────────────────────────────────
+def _bili_jump(source_ref, start_ts):
+    """B站时间戳跳转链接(app.py 同名函数的副本,避免循环导入)。"""
+    if not source_ref or start_ts is None:
+        return None
+    m = __import__("re").search(r"(BV[0-9A-Za-z]+)", str(source_ref))
+    if not m:
+        return None
+    return f"https://www.bilibili.com/video/{m.group(1)}?t={int(float(start_ts))}"
+
+
 def ok(data):
     return {"ok": True, "data": data, "error": None}
 
@@ -136,6 +147,21 @@ class Serializer:
                      "rule_category_id": rule["category_id"] if rule else None}
         related = self.memory.db.links_for_items([it["id"]]).get(it["id"], [])
         out["related"] = related
+        # 关键片段(购物稿 ②):边界已吸附到结构单元,面板按时间轴展示
+        from memvault.memory import fmt_ts
+        clips = []
+        for c in self.memory.db.clips_for_item(it["id"]):
+            clips.append({
+                "id": c["id"], "kind": c["kind"], "reason": c.get("reason"),
+                "confidence": c.get("confidence"),
+                "start_ts": c.get("start_ts"), "end_ts": c.get("end_ts"),
+                "start_label": (fmt_ts(c["start_ts"])
+                                if c.get("start_ts") is not None else ""),
+                "end_label": (fmt_ts(c["end_ts"])
+                              if c.get("end_ts") is not None else ""),
+                "jump": _bili_jump(it.get("source_ref"), c.get("start_ts")),
+            })
+        out["clips"] = clips
         chunks = []
         for c in it.get("chunks", []):
             chunks.append({

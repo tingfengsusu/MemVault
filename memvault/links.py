@@ -99,3 +99,50 @@ def rebuild_all(memory, cfg: dict, progress=print) -> dict:
         if progress and (i + 1) % 20 == 0:
             progress(f"  已处理 {i + 1}/{len(rows)} 条")
     return {"items": len(rows), "links": total_links}
+
+def snap_clips_to_units(memory, item_id: int, raw_clips: list[dict]) -> list[dict]:
+    """把 LLM 给的片段边界吸附到结构单元边界(设计稿 §3 接口约定 4)。
+
+    结构单元(单元块)是骨架:片段的 start/end 各找最近的单元边界,避免
+    "切在动作中间";条目没有单元块(未单元化的视频)时原样返回。
+    校验:非法时间戳(负数/超出视频时长)与 start>=end 的片段直接丢弃。
+    """
+    units = []
+    for c in memory.get_item(item_id).get("chunks", []):
+        if c["modality"] != "text" or not (c["content"] or "").startswith("[单元"):
+            continue
+        if c.get("start_ts") is None:
+            continue
+        units.append((float(c["start_ts"]),
+                      float(c["end_ts"]) if c.get("end_ts") is not None
+                      else float(c["start_ts"])))
+    units.sort()
+    bounds = sorted({t for u in units for t in u})
+
+    def snap(value: float, prefer_hi: bool) -> float:
+        if not bounds:
+            return value
+        if prefer_hi:
+            later = [b for b in bounds if b >= value]
+            return later[0] if later else bounds[-1]
+        earlier = [b for b in bounds if b <= value]
+        return earlier[-1] if earlier else bounds[0]
+
+    out = []
+    for c in raw_clips or []:
+        try:
+            start = float(c.get("start"))
+            end = float(c.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if start < 0 or end < 0 or end - start < 0.5:
+            continue
+        start, end = snap(start, False), snap(end, True)
+        if end - start < 0.5 or end <= start:
+            continue
+        out.append({"start_ts": start, "end_ts": end,
+                    "kind": c.get("kind") or "片段",
+                    "reason": c.get("reason"),
+                    "confidence": c.get("confidence")})
+    out.sort(key=lambda x: x["start_ts"])
+    return out
