@@ -197,3 +197,35 @@ def test_max_units_caps_unit_count():
     assert picked[-1]["start"] == last * 5.0              # 结尾也保留(成品展示常在这里)
     starts = [u["start"] for u in picked]
     assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+def test_decide_pipeline_four_quadrants():
+    """四象限判据(设计稿 §2.3)——重点是"人声高但有字幕"必须跑字幕 OCR。
+
+    实测样本:BV1ki4y1K7sf 人声 85%/无字幕带(语音为主);
+    BV1Pe4y1s7pt 人声 98%/**有**字幕带(两者都有)——旧实现会漏掉它的字幕。
+    """
+    from memvault.pipeline.video import decide_pipeline
+
+    cfg = {"vision": {"ocr": {"enabled": "auto", "speech_ratio": 0.3}}}
+    # 字幕为主:人声低 + 有带 → 字幕带 + 全幅 + 单元化
+    p1 = decide_pipeline(cfg, True, 0.07)
+    assert (p1["ocr_band"], p1["ocr_full"], p1["unitize"]) == (True, True, True)
+    assert p1["quadrant"] == "字幕为主"
+    # 两者都有:人声高 + 有带 → 必须抓字幕(但不跑全幅,省成本)+ 单元化
+    p2 = decide_pipeline(cfg, True, 0.98)
+    assert (p2["ocr_band"], p2["ocr_full"], p2["unitize"]) == (True, False, True)
+    assert p2["quadrant"] == "两者都有"
+    # 语音为主:人声高 + 无带 → 都不做(现状行为,零回归)
+    p3 = decide_pipeline(cfg, False, 0.85)
+    assert (p3["ocr_band"], p3["ocr_full"], p3["unitize"]) == (False, False, False)
+    assert p3["quadrant"] == "语音为主"
+    # 纯动作/音乐:人声低 + 无带 → 全幅兜底 OCR(字幕可能被探针漏判),不单元化
+    p4 = decide_pipeline(cfg, False, 0.02)
+    assert (p4["ocr_band"], p4["ocr_full"], p4["unitize"]) == (False, True, False)
+    assert p4["quadrant"] == "纯动作/音乐"
+    # 开关:off 全关;on 强制
+    off = decide_pipeline({"vision": {"ocr": {"enabled": False}}}, True, 0.1)
+    assert off["ocr_band"] is False and off["unitize"] is False
+    on = decide_pipeline({"vision": {"ocr": {"enabled": True}}}, False, 0.9)
+    assert on["ocr_band"] is True and on["ocr_full"] is True

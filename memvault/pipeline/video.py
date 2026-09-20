@@ -75,6 +75,41 @@ def _build_units(profile, segments: list[dict]) -> list[dict]:
     return units
 
 
+def decide_pipeline(cfg: dict, has_band: bool, speech_ratio: float) -> dict:
+    """四象限判据(设计稿 §2.3):画像事实决定"要不要 OCR、要不要单元化"。
+
+    | 画像 | OCR 字幕带通道 | OCR 全幅通道 | 单元化 |
+    |---|---|---|---|
+    | 人声低 + 有字幕带(字幕为主) | 要 | 要(兜底) | 要 |
+    | 人声高 + 有字幕带(两者都有) | **要**(此前会漏) | 不要(省成本) | 要 |
+    | 人声高 + 无字幕带(语音为主) | 不要 | 不要 | 不要 |
+    | 人声低 + 无字幕带(纯动作/音乐) | 不要 | 要(兜底) | 不要 |
+
+    旧实现只看"人声占比 <0.3 才 OCR":用户给的 BV1Pe4y1s7pt 人声 98%、字幕带在画面
+    4~12.5%,于是**字幕永远进不了库** —— 这正是"两者都有"象限要求的双通道。
+    """
+    from memvault.config import is_off
+
+    ocfg = (cfg.get("vision") or {}).get("ocr") or {}
+    mode = ocfg.get("enabled", "auto")
+    threshold = float(ocfg.get("speech_ratio", 0.3))
+    low_speech = speech_ratio < threshold
+    if is_off(mode):
+        return {"ocr_band": False, "ocr_full": False, "unitize": False,
+                "quadrant": "OCR 已关闭"}
+    if str(mode).lower() in ("on", "true", "yes", "always"):
+        return {"ocr_band": True, "ocr_full": True, "unitize": has_band,
+                "quadrant": "OCR 强制开启"}
+    quadrant = (("字幕为主" if low_speech else "两者都有") if has_band
+                else ("语音为主" if not low_speech else "纯动作/音乐"))
+    return {
+        "ocr_band": has_band,      # 有字幕带就抓字幕(不再看人声多少)
+        "ocr_full": low_speech,    # 全幅只在人声低时补(省成本)
+        "unitize": has_band,       # 有字幕带 = 有结构可依,走单元化
+        "quadrant": quadrant,
+    }
+
+
 def should_ocr(cfg: dict, speech_seconds: float,
                duration: float) -> tuple[bool, str]:
     """要不要对抽到的帧跑 OCR,返回 (是否, 原因)。
@@ -239,9 +274,18 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
                 progress(f"⚠ 不符合该 UP 常规形态:{why} —— 按全自动处理并提示")
                 profile.anomalies.append(f"up_profile_mismatch: {why}")
 
-    # 6) 结构单元化(字幕类视频):动作事件 + 成品展示 → 单元帧
+    # 6) 四象限判据 → 结构单元化(有字幕带就有结构可依)+ 决定 OCR 通道
+    has_band = bool(profile is not None and profile.subtitle_bands)
+    plan = decide_pipeline(cfg, has_band, speech_ratio)
+    if profile is not None:
+        progress(f"画像判定:{plan['quadrant']}(字幕带{'有' if has_band else '无'}"
+                 f" / 人声 {speech_ratio:.0%})→ 字幕带通道 {plan['ocr_band']} · "
+                 f"全幅通道 {plan['ocr_full']} · 单元化 {plan['unitize']}")
+        if plan["ocr_band"] and ocr is None:
+            ocr = OcrReader()            # 有字幕带就必须跑 OCR(哪怕人声 98%)
+            want_ocr = True
     units = []
-    if profile is not None and _unit_enabled(cfg) and profile.is_subtitle_led:
+    if profile is not None and _unit_enabled(cfg) and plan["unitize"]:
         units = _build_units(profile, segments)
         max_units = int((cfg.get("frames") or {}).get("max_units", 120) or 0)
         if max_units and len(units) > max_units:
