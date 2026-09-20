@@ -258,6 +258,19 @@ HF_HUB_OFFLINE=1 .venv\Scripts\python -m memvault tray      # 或 run_tray.py
 ## 新会话开场提示词模板
 
 ```
-读 D:\Code\MemVault\docs\HANDOFF.md、DESIGN.md 与 docs/testing-log.md,
-继续 MemVault 项目。当前需求:<你的具体需求>
+读 D:\Code\MemVault\docs\HANDOFF.md、DESIGN.md、docs	esting-log.md、
+docs\design-frame-units.md(含 §8 实现记录与偏差)与 docs\design-shopping-review.md
+(含 §10 实现状态),继续 MemVault 项目。
+
+状态速览(2026-09-20):测试 170 例全绿;面板已全部迁 Vue(web/,build 产物入库);
+抽帧改造 0~6 步全部落地(探针画像/顺序解码/双 OCR 通道/单元化/UP 画像缓存/弹幕广告段/clips);
+四象限判据已实现,无字幕带视频取帧默认 events。main 已推送,两个主题分支暂不同步。
+
+待办(按优先级):
+1. 品类/UP 先验配置(设计原意:品类只选先验、探针事实优先;未命中走纯预处理)
+2. 双通道"按时间配对"校验
+3. LLM 端点偶发空返回:降级重试(换更短提示)
+4. 购物稿 §4 偏好重排与检索个性化、§5 有界 ReAct
+
+当前需求:<你的具体需求>
 ```
