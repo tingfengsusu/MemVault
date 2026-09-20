@@ -91,9 +91,19 @@ class LLMClient:
             timeout=90,
         )
         r.raise_for_status()
-        choice = r.json()["choices"][0]
+        body_json = r.json()
+        choice = body_json["choices"][0]
         self._last_finish_reason = choice.get("finish_reason")
-        return choice["message"]["content"] or ""
+        # 观测:空返回时要能分清"思考 token 吃光预算"与"端点侧空返回"
+        # (两者后果一样、原因完全不同 —— 排障全靠这两个字段)
+        self._last_usage = body_json.get("usage") or {}
+        text = choice["message"].get("content") or ""
+        if not text.strip():
+            logger.info("LLM 空内容:finish=%s usage=%s(completion 大多为思考 token)",
+                        self._last_finish_reason,
+                        {k: self._last_usage.get(k) for k in
+                         ("prompt_tokens", "completion_tokens", "total_tokens")})
+        return text
 
     def chat_json(self, system: str, user: str, max_tokens: int = 2000) -> dict:
         """JSON 解析。推理型模型(如 deepseek-v4-flash)的思考 token 会占用
@@ -104,6 +114,11 @@ class LLMClient:
         while self._needs_bigger_budget(text) and budget < _JSON_TOKEN_CEILING:
             prev = budget
             budget = min(max(budget * 2, 800), _JSON_TOKEN_CEILING)
+            if self._last_finish_reason == "stop":
+                # finish=stop 却空内容 → 更像端点瞬时抖动,退避一下再试
+                import time as _time
+
+                _time.sleep(3.0)
             logger.warning(
                 "LLM 返回为空或截断(finish=%s, max_tokens=%d),以 %d 重试",
                 self._last_finish_reason, prev, budget)
