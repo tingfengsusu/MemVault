@@ -129,6 +129,7 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
         max_frames=fcfg.get("max_frames", 40),
         frame_interval=fcfg.get("frame_interval", 5.0),
         scene_threshold=fcfg.get("scene_threshold", 0.45),
+        decode=fcfg.get("decode", "grab"),
     )
 
     # 4) 帧入库(图像 chunk)。OCR 放到 ASR 之后:要不要跑要先看有多少语音

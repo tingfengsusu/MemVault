@@ -25,14 +25,14 @@ def video_duration(video_path) -> float:
 
 
 def extract_frames(video_path, out_dir, max_frames=40, frame_interval=5.0,
-                   scene_threshold=0.45) -> list[dict]:
+                   scene_threshold=0.45, decode="grab") -> list[dict]:
     """抽帧,返回 [{"ts": 秒, "path": jpg 路径}],时间轴从头铺到尾。"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for f in out_dir.glob("frame_*.jpg"):
         f.unlink()
 
-    probes = _probe(video_path, PROBE_BUDGET)
+    probes = _probe(video_path, PROBE_BUDGET, decode=decode)
     if not probes:
         logger.warning("场景探测失败,回退固定间隔抽帧")
         return _by_interval(video_path, out_dir, max_frames, frame_interval)
@@ -46,10 +46,14 @@ def extract_frames(video_path, out_dir, max_frames=40, frame_interval=5.0,
     return result
 
 
-def _probe(video_path, budget: int) -> list[dict]:
+def _probe(video_path, budget: int, decode: str = "grab") -> list[dict]:
     """全片粗扫:均匀取点,算相邻点的 HSV 直方图相关性(corr 越低=画面变化越大)。
 
     只记录 (ts, corr),不存图;选中的点再回头写盘。
+
+    decode=`grab`(默认)顺序解码、只在采样点 `retrieve()`;`seek` 为旧的逐点
+    `set(CAP_PROP_POS_FRAMES)`。设计稿实测顺序解码快 7 倍(17s → 4s),
+    是零风险的免费收益;保留 seek 档只为回退。
     """
     import cv2
 
@@ -61,18 +65,39 @@ def _probe(video_path, budget: int) -> list[dict]:
         return []
     step = max(1, total // max(1, budget))
     probes, prev_hist = [], None
-    for idx in range(0, total, step):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, frame = cap.read()
-        if not ok:
-            continue
+
+    def _hist(frame):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
-        hist = cv2.normalize(hist, hist).flatten()
-        corr = 1.0 if prev_hist is None else float(
-            cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL))
-        probes.append({"ts": round(idx / fps, 2), "corr": corr})
-        prev_hist = hist
+        h = cv2.calcHist([hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        return cv2.normalize(h, h).flatten()
+
+    if decode == "seek":
+        for idx in range(0, total, step):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            hist = _hist(frame)
+            corr = 1.0 if prev_hist is None else float(
+                cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL))
+            probes.append({"ts": round(idx / fps, 2), "corr": corr})
+            prev_hist = hist
+        cap.release()
+        return probes
+
+    idx = 0
+    while True:
+        if not cap.grab():      # 只解封装,不解码
+            break
+        if idx % step == 0:
+            ok, frame = cap.retrieve()
+            if ok:
+                hist = _hist(frame)
+                corr = 1.0 if prev_hist is None else float(
+                    cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL))
+                probes.append({"ts": round(idx / fps, 2), "corr": corr})
+                prev_hist = hist
+        idx += 1
     cap.release()
     return probes
 

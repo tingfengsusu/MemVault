@@ -20,9 +20,19 @@ DEFAULTS = {
                 "产品名,例如:API、token、代理、coding plan、CC、ZCode、"
                 "Command Code、GitHub、Claude、GPT、CLI、SDK、Whisper、"
                 "以及各种 AI 模型名称。请按原词转写。")},
-    "frames": {"max_frames": 40, "frame_interval": 5.0, "scene_threshold": 0.45},
+    "frames": {"max_frames": 40, "frame_interval": 5.0, "scene_threshold": 0.45,
+               # decode=顺序 grab(实测比逐点 seek 快 7 倍);seek 为回退档
+               "decode": "grab",
+               # unit=按"动作事件单元"落库(字幕类视频);off 回旧块布局(零回归)
+               "unit": "auto",
+               # probe=视频画像探针(设计稿第 0 步)
+               "probe": {"enabled": "auto", "hz": 5.0, "bands": 24,
+                         "text_frames": 10, "min_separation": 3.0}},
     # 视觉:OCR 与图像向量(都随依赖/权重是否就绪自动降级)
-    "vision": {"ocr": {"enabled": "auto", "speech_ratio": 0.3},
+    "vision": {"ocr": {"enabled": "auto", "speech_ratio": 0.3,
+                       # band=auto 时按探针的字幕带裁切(水印 85%→0%);
+                       # off 回全幅;全幅通道每 full_every 帧补一次(卖点浮层用)
+                       "band": "auto", "full_every": 5},
                "image_embed": {"enabled": "auto"}},
     "bili": {"quality": 64, "cookies_path": None},
     "keep_video": False,
