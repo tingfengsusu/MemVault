@@ -258,8 +258,14 @@ def test_visual_event_frames_picks_changes_and_settles():
     assert visual_event_frames([], []) == []
 
 
-def test_voice_led_strategy_default_is_uniform():
-    """默认 uniform = 与今天完全一致(守零回归红线);events 才是新策略。"""
+def test_voice_led_strategy_default_is_events():
+    """默认 events(用户 2026-09-20 拍板:无字幕带视频按画面变化事件取帧);
+    uniform 保留为回退档,两条路径都要能被配置选中。"""
     from memvault.config import DEFAULTS
 
-    assert DEFAULTS["frames"]["voice_led"] == "uniform"
+    assert DEFAULTS["frames"]["voice_led"] == "events"
+    from memvault.pipeline.video import decide_pipeline
+
+    # 判据不受取帧策略影响(策略只决定"怎么取帧",不决定"要不要 OCR")
+    cfg = {"vision": {"ocr": {"enabled": "auto"}}}
+    assert decide_pipeline(cfg, False, 0.85)["quadrant"] == "语音为主"

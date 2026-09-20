@@ -28,8 +28,9 @@ DEFAULTS = {
                # 单位化视频的单元数上限(长视频 OCR 成本随单元数线性,超了就均匀抽样单元)
                "max_units": 120,
                # 无字幕带(语音为主/纯动作)的视频怎么取帧:
-               # uniform=与今天完全一致(零回归);events=按画面变化事件+静止段取图表/图示帧
-               "voice_led": "uniform",
+               # events(默认,用户 2026-09-20 拍板)=按画面变化事件+静止段取图表/图示帧;
+               # uniform=与改造前完全一致(回退档,用于对比/排障)
+               "voice_led": "events",
                # probe=视频画像探针(设计稿第 0 步)
                "probe": {"enabled": "auto", "hz": 5.0, "bands": 24,
                          "text_frames": 10, "min_separation": 3.0}},

@@ -252,8 +252,8 @@ onMounted(() => { load(); loadBindings() })
               unit=off 回退;上限 {{ s.frames.max_frames }} 帧,间隔 {{ s.frames.frame_interval }}s、
               场景阈值 {{ s.frames.scene_threshold }})
               <span class="muted">— 上限只限数量:间隔会自动放大,帧仍铺满全片;
-                无字幕带的视频取帧策略:{{ s.frames.voice_led === 'events' ?
-                  '按画面变化事件取图示/图表帧' : '与今天一致(均匀;可改 frames.voice_led=events)' }}</span><br>
+                无字幕带视频取帧:{{ s.frames.voice_led === 'events' ?
+                  '按画面变化事件取图表/图示帧(默认)' : '均匀取帧(回退档)' }}</span><br>
               <span class="muted">本库用法:结构单元化 {{ s.usage?.unitized ?? 0 }} 条视频 /
                 均匀抽帧 {{ s.usage?.uniform ?? 0 }} 条(共 {{ s.usage?.videos ?? 0 }} 条)</span><br>
               <span class="muted">品类(分类树)本应只用于选「先验配置」;该预置目前未做,
