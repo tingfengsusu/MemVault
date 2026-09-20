@@ -31,6 +31,14 @@ const stages = ref(['extract'])
 const caches = ref([])
 const newRule = ref({ kind: 'up', target: '', prompt_name: '', stage: 'extract', note: '' })
 
+// 值走英文(接口契约),界面显示中文
+const KIND_LABELS = { up: 'UP主', up_set: 'UP集', domain: '领域',
+                      source_type: '来源类型', keyword: '标题关键词' }
+const STAGE_LABELS = { extract: '提取(内容描述)', router: '分类(路由)',
+                       clip: '关键片段', frames: '抽帧画像' }
+const kindLabel = (k) => KIND_LABELS[k] || k
+const stageLabel = (st) => STAGE_LABELS[st] || st
+
 async function loadBindings() {
   try {
     const d = await bindingApi.list()
@@ -133,27 +141,33 @@ onMounted(() => { load(); loadBindings() })
       <div v-if="bindings.length" style="margin-bottom:8px">
         <div v-for="r in bindings" :key="r.kind + r.target + r.stage"
              style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--card-border)">
-          <span class="tag gray">{{ r.kind }}</span>
-          <span style="min-width:120px">{{ r.target }}</span>
+          <span class="tag gray">{{ kindLabel(r.kind) }}</span>
+          <span style="min-width:150px">
+            {{ r.label || '—' }}<span class="muted"> {{ r.target }}</span></span>
           <span class="tag">{{ r.prompt_name }}</span>
-          <span class="muted">stage={{ r.stage }}</span>
+          <span class="muted">{{ stageLabel(r.stage) }}</span>
           <span class="muted" style="font-size:12px">{{ r.note || '' }}</span>
           <button class="ghost" :disabled="busy" @click="removeRule(r)">解除</button>
         </div>
       </div>
-      <p v-else class="muted">还没有规则。示例:UP(带货号)→ shopping_review,让它的视频走购物复盘提取。</p>
+      <p v-else class="muted">还没有规则。示例:某 UP主 → shopping_review,让他的视频走购物复盘提取。</p>
       <form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"
             @submit.prevent="addRule">
         <select v-model="newRule.kind">
-          <option v-for="k in kinds" :key="k" :value="k">{{ k }}</option>
+          <option v-for="k in kinds" :key="k" :value="k">{{ kindLabel(k) }}</option>
         </select>
-        <input v-model="newRule.target" placeholder="UP mid / UP集(逗号分隔)/ 领域 / 关键词"
+        <input v-model="newRule.target"
+               :placeholder="newRule.kind === 'up' ? 'UP 的 mid(如 17495873)'
+                 : newRule.kind === 'up_set' ? '多个 mid,逗号分隔'
+                 : newRule.kind === 'domain' ? '领域,如 shopping'
+                 : newRule.kind === 'source_type' ? '来源类型,如 video'
+                 : '标题里出现的关键词'"
                required style="min-width:230px">
         <select v-model="newRule.prompt_name">
           <option v-for="p in profiles" :key="p" :value="p">{{ p }}</option>
         </select>
         <select v-model="newRule.stage">
-          <option v-for="st in stages" :key="st" :value="st">{{ st }}</option>
+          <option v-for="st in stages" :key="st" :value="st">{{ stageLabel(st) }}</option>
         </select>
         <input v-model="newRule.note" placeholder="备注(可空)" style="min-width:120px">
         <button :disabled="busy">绑定</button>
@@ -166,7 +180,7 @@ onMounted(() => { load(); loadBindings() })
       <div v-for="c in caches" :key="c.up_mid"
            style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--card-border)">
         <span class="tag gray">mid {{ c.up_mid }}</span>
-        <span class="muted">字幕带
+        <span class="muted">{{ c.label || '' }} 字幕带
           {{ (c.subtitle_bands || []).map(b => (b[0]*100).toFixed(0) + '~' + (b[1]*100).toFixed(0) + '%').join(', ') }}</span>
         <span class="muted">事件 {{ c.event_hz ? c.event_hz.toFixed(3) : '—' }}/s</span>
         <span class="muted">人声 {{ c.speech_ratio == null ? '—' : (c.speech_ratio*100).toFixed(0) + '%' }}</span>

@@ -615,9 +615,33 @@ def build_router(memory, cfg: dict) -> APIRouter:
                 "duration": payload.get("duration"),
                 "updated_at": r.get("created_at"),
             })
-        return ok({"items": [dict(r) for r in rows], "profiles": profiles,
+        items = []
+        for r in rows:
+            row = dict(r)
+            row["label"] = None
+            if row["kind"] == "up":     # 显示 UP 名而不是光秃秃的 mid
+                hit = memory.db._conn().execute(
+                    "SELECT up_name FROM up_categories WHERE up_mid=?",
+                    (row["target"],)).fetchone()
+                if hit and hit["up_name"]:
+                    row["label"] = hit["up_name"]
+                else:
+                    import json as _json
+                    for it in memory.db._conn().execute(
+                            "SELECT attrs_json FROM items WHERE attrs_json LIKE ?"
+                            " ORDER BY id DESC LIMIT 5", (f'%{row["target"]}%',)):
+                        try:
+                            a = _json.loads(it["attrs_json"] or "{}")
+                        except (TypeError, ValueError):
+                            continue
+                        if str(a.get("up_mid")) == str(row["target"]) and a.get("up"):
+                            row["label"] = a["up"]
+                            break
+            items.append(row)
+        return ok({"items": items, "profiles": profiles,
                    "kinds": ["up", "up_set", "domain", "source_type", "keyword"],
-                   "stages": ["extract", "router", "clip"], "caches": caches})
+                   "stages": ["extract", "router", "clip", "frames"],
+                   "caches": caches})
 
     @api.post("/prompt-bindings")
     def prompt_binding_add(payload: dict = Body(...)):
