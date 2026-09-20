@@ -29,16 +29,17 @@ def _probe_enabled(cfg: dict) -> bool:
 
     auto(默认):只在"本来就要做 OCR 的视频"上跑 —— 旁白视频零额外成本(红线①)。
     """
-    mode = str(((cfg.get("frames") or {}).get("probe") or {})
-               .get("enabled", "auto")).lower()
-    if mode == "off":
-        return False
-    return True
+    from memvault.config import is_off
+
+    return not is_off(((cfg.get("frames") or {}).get("probe") or {})
+                      .get("enabled", "auto"))
 
 
 def _unit_enabled(cfg: dict) -> bool:
     """是否按"结构单元"落库(config.frames.unit: auto|off)。"""
-    return str((cfg.get("frames") or {}).get("unit", "auto")).lower() != "off"
+    from memvault.config import is_off
+
+    return not is_off((cfg.get("frames") or {}).get("unit", "auto"))
 
 
 # 单元数下限:低于它说明探针没抓住结构,宁可回退到均匀抽帧(红线②)
@@ -86,10 +87,12 @@ def should_ocr(cfg: dict, speech_seconds: float,
              视频不必做第二遍识别(OCR + ASR 双份成本)。
     """
     ocfg = (cfg.get("vision") or {}).get("ocr") or {}
+    from memvault.config import is_off
+
     mode = str(ocfg.get("enabled", "auto")).lower()
-    if mode == "off":
+    if is_off(mode):
         return False, "config.vision.ocr.enabled=off"
-    if mode == "on":
+    if str(mode).lower() in ("on", "true", "yes", "always"):
         return True, "config.vision.ocr.enabled=on(强制)"
     ratio = speech_seconds / duration if duration > 0 else 1.0
     limit = float(ocfg.get("speech_ratio", 0.3))
@@ -265,7 +268,9 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
     #    字幕带通道拿字幕(水印在带外,天然清掉);全幅通道低频补"卖点浮层/参数文字"
     #    (字幕带裁切会把贴在画面任意位置的 `防水 10000mm` 那类文字丢掉)
     ocfg = (cfg.get("vision") or {}).get("ocr") or {}
-    band_cfg = str(ocfg.get("band", "auto")).lower()
+    from memvault.config import is_off
+
+    band_cfg = "off" if is_off(ocfg.get("band", "auto")) else "auto"
     full_every = max(1, int(ocfg.get("full_every", 5)))
     band = None
     if (ocr is not None and band_cfg != "off" and profile is not None
@@ -363,7 +368,9 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
 
     # 10) 弹幕广告段标注(设计稿第 5 步):观众比 UP 更早承认"这段是广告"
     dcfg = (cfg.get("vision") or {}).get("danmaku") or {}
-    if meta.get("cid") and str(dcfg.get("enabled", "auto")).lower() != "off":
+    from memvault.config import is_off
+
+    if meta.get("cid") and not is_off(dcfg.get("enabled", "auto")):
         try:
             from memvault.sources.bili_danmaku import mark_ad_segments
 

@@ -152,3 +152,28 @@ def test_build_units_rounds_frame_ts():
     units = _build_units(prof, [])
     assert units[0]["end_frame"] == 3.14
     assert units[1]["start_frame"] == 8.5
+
+
+def test_switches_accept_yaml_booleans():
+    """YAML 会把 on/off 解析成布尔 —— 开关判断必须兼容 False/'off'/None(实测踩过:
+    按注释写 `snap: off` 拿到的是 False,与字符串 'off' 比较会静默失效)。"""
+    from memvault.config import is_off
+    from memvault.pipeline.video import _probe_enabled, _unit_enabled
+
+    assert is_off(False) and is_off("off") and is_off("OFF") and is_off(None)
+    assert not is_off(True) and not is_off("on") and not is_off("auto")
+
+    # 配置里写 off(YAML→False)必须真的关掉
+    assert _unit_enabled({"frames": {"unit": False}}) is False
+    assert _unit_enabled({"frames": {"unit": "off"}}) is False
+    assert _unit_enabled({"frames": {"unit": "auto"}}) is True
+    assert _probe_enabled({"frames": {"probe": {"enabled": False}}}) is False
+    assert _probe_enabled({"frames": {"probe": {"enabled": "auto"}}}) is True
+
+    # OCR 三态:off(布尔或字符串)都不跑;on 强制
+    from memvault.pipeline.video import should_ocr
+
+    assert should_ocr({"vision": {"ocr": {"enabled": False}}}, 0, 100)[0] is False
+    assert should_ocr({"vision": {"ocr": {"enabled": "off"}}}, 0, 100)[0] is False
+    assert should_ocr({"vision": {"ocr": {"enabled": True}}}, 100, 100)[0] is True
+    assert should_ocr({"vision": {"ocr": {"enabled": "on"}}}, 100, 100)[0] is True

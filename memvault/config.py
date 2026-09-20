@@ -64,6 +64,20 @@ DEFAULTS = {
 }
 
 
+# YAML 1.1 会把 on/off/yes/no 解析成布尔:配置里按注释写 `off` 时拿到的是 False,
+# 直接与字符串比较会静默失效(实测踩过)。所有开关判断都走这里。
+_OFF_WORDS = {"off", "false", "0", "no", "disabled", "none"}
+
+
+def is_off(value) -> bool:
+    """这个配置值是否表示"关闭"(兼容 YAML 布尔 False 与字符串 'off')。"""
+    if value is None or value is False or value == 0:
+        return True
+    if value is True:
+        return False
+    return str(value).strip().lower() in _OFF_WORDS
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     out = dict(base)
     for k, v in (override or {}).items():

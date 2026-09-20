@@ -19,7 +19,7 @@ frames:
     min_separation: 3.0  # 活跃文字带判据:变化强度 ≥ 最低者 ×N
 vision:
   ocr:
-    enabled: auto      # auto=人声太少(字幕/无配音)才跑 | on=一律跑(PPT/代码类) | off=不跑
+    enabled: "auto"    # auto=人声太少(字幕/无配音)才跑 | on=一律跑(PPT/代码类) | off=不跑
     speech_ratio: 0.3  # auto 判据:人声时长/视频时长 低于此值就跑 OCR
     band: auto         # auto=按探针字幕带裁切(水印命中 85%→0%) | off=全幅
     full_every: 5      # 双通道:每 N 帧补一次全幅 OCR(卖点/参数浮层文字)
@@ -45,4 +45,4 @@ llm:
   classify_confidence: 0.8
   ads_policy: ignore      # 视频/页面里的广告信息:ignore=忽略不写进属性 | mention=单独一条属性
 clips:
-  snap: on             # 关键片段边界吸附到结构单元(off = 用 LLM 原始边界)
+  snap: "on"             # 关键片段边界吸附到结构单元(off = 用 LLM 原始边界)

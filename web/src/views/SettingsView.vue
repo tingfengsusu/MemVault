@@ -9,7 +9,7 @@ import ToastHost from '../components/ToastHost.vue'
 import { showToast } from '../lib/toast.js'
 import { ApiError, api, bindingApi, settingsApi } from '../api/client.js'
 
-const s = ref({ llm: {}, asr: {}, embedding: {}, vision: {}, frames: {}, links: {} })
+const s = ref({ llm: {}, asr: {}, embedding: {}, vision: {}, frames: {}, links: {}, clips: {} })
 const loading = ref(true)
 const busy = ref(false)
 const testResult = ref(null)
@@ -236,12 +236,30 @@ onMounted(() => { load(); loadBindings() })
         <tr><th style="width:150px">ASR</th>
             <td>{{ s.asr.model }} · device={{ s.asr.device }} · {{ s.asr.compute_type }}</td></tr>
         <tr><th>抽帧</th>
-            <td>最多 {{ s.frames.max_frames }} 帧 · 间隔 {{ s.frames.frame_interval }}s ·
-                场景阈值 {{ s.frames.scene_threshold }}</td></tr>
+            <td>
+              <b>均匀抽帧</b>(上限 {{ s.frames.max_frames }} 帧 · 间隔 {{ s.frames.frame_interval }}s ·
+              场景阈值 {{ s.frames.scene_threshold }})
+              <span class="muted">— 只用于未单元化的视频</span><br>
+              <b>结构单元化</b>:{{ s.frames.unit === 'off' ? '关闭(全部走均匀抽帧)' :
+                'auto(字幕类视频按动作事件/成品展示落库,帧数 = 单元数 × 2,不受上限约束)' }}<br>
+              <span class="muted">解码:{{ s.frames.decode === 'seek' ? '逐点定位(慢)' : '顺序解码(快)' }} ·
+              画像探针:{{ s.frames.probe?.enabled }} · {{ s.frames.probe?.hz }}Hz ·
+              {{ s.frames.probe?.bands }} 条带 · 分离度 ≥{{ s.frames.probe?.min_separation }}×</span>
+            </td></tr>
         <tr><th>OCR</th>
-            <td>{{ s.vision.ocr?.enabled }} · 人声占比低于 {{ s.vision.ocr?.speech_ratio }} 才跑</td></tr>
+            <td>{{ s.vision.ocr?.enabled }} · 人声占比低于 {{ s.vision.ocr?.speech_ratio }} 才跑<br>
+              <span class="muted">双通道:字幕带
+                {{ s.vision.ocr?.band === 'off' ? '关闭(整幅识别,会带水印)' :
+                   'auto(裁字幕带,水印不进文本)' }} ·
+                每 {{ s.vision.ocr?.full_every }} 帧补一次整幅(卖点/参数文字)</span>
+            </td></tr>
         <tr><th>图像嵌入</th>
             <td>{{ s.vision.image_embed?.enabled }}(Chinese-CLIP,缺权重自动跳过)</td></tr>
+        <tr><th>弹幕</th>
+            <td>{{ s.vision.danmaku?.enabled }} ·
+              {{ s.vision.danmaku?.window }}s 窗内 ≥{{ s.vision.danmaku?.min_hits }} 条广告词才算广告段</td></tr>
+        <tr><th>关键片段</th>
+            <td>边界{{ s.clips?.snap === 'off' ? '用模型原始值' : '吸附到结构单元' }}</td></tr>
         <tr><th>双链</th>
             <td>阈值 {{ s.links.similarity_threshold }} · 每条最多 {{ s.links.max_per_item }} 条</td></tr>
         <tr><th>广告处理</th>

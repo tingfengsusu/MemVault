@@ -746,7 +746,9 @@ def build_router(memory, cfg: dict) -> APIRouter:
                    "embedding": cfg.get("embedding", {}),
                    "vision": cfg.get("vision", {}),
                    "frames": cfg.get("frames", {}),
-                   "links": cfg.get("links", {})})
+                   "links": cfg.get("links", {}),
+                   "clips": cfg.get("clips", {}),
+                   "watch": cfg.get("watch", {})})
 
     @api.post("/settings")
     def save_settings(app_request: Request, backend: str = Body("api"),
