@@ -6,6 +6,7 @@ from pathlib import Path
 
 from memvault.asr import whisper_asr
 from memvault.vision import frames as frames_mod
+from memvault.vision import frames_probe as frames_mod_probe
 from memvault.vision.ocr import OcrReader
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,56 @@ def _image_embed_enabled(cfg: dict) -> bool:
     mode = str(((cfg.get("vision") or {}).get("image_embed") or {})
                .get("enabled", "auto")).lower()
     return mode != "off"
+
+
+def _probe_enabled(cfg: dict) -> bool:
+    """是否跑视频画像探针(config.frames.probe.enabled: auto|on|off)。
+
+    auto(默认):只在"本来就要做 OCR 的视频"上跑 —— 旁白视频零额外成本(红线①)。
+    """
+    mode = str(((cfg.get("frames") or {}).get("probe") or {})
+               .get("enabled", "auto")).lower()
+    if mode == "off":
+        return False
+    return True
+
+
+def _unit_enabled(cfg: dict) -> bool:
+    """是否按"结构单元"落库(config.frames.unit: auto|off)。"""
+    return str((cfg.get("frames") or {}).get("unit", "auto")).lower() != "off"
+
+
+# 单元数下限:低于它说明探针没抓住结构,宁可回退到均匀抽帧(红线②)
+_MIN_UNITS = 5
+_SETTLE_WINDOW = 3.0    # 事件结束后 3s 内的静止段算"成品展示"
+
+
+def _build_units(profile, segments: list[dict]) -> list[dict]:
+    """把探针的动作事件 + 成品展示段 + 句子级语音组装成单元(纯函数,可离线测)。
+
+    每单元:{"start", "end", "start_frame", "end_frame", "speech": [...]}
+    - 起始帧 = 事件起点(动作开始);收尾帧 = 事件终点,若紧随其后有静止段则取其末尾
+      (成品展示镜头,设计稿 §1.6/§2.4);
+    - speech = 与该区间相交的**句子级** ASR 片段(不用合并后的 40s 段)。
+    """
+    settles = sorted(profile.settle_segments)
+    units = []
+    for start, end in profile.events:
+        end_frame = end
+        for lo, hi in settles:
+            if end <= lo <= end + _SETTLE_WINDOW:
+                end_frame = hi
+                break
+        if end_frame - start < 0.2:      # 太短的抖动不成单元
+            continue
+        words = [s["text"] for s in segments
+                 if s.get("text") and s["end"] > start and s["start"] < end_frame]
+        # 帧时间戳与 write_frames_at 一样取两位小数,否则查不到对应帧
+        units.append({"start": float(start), "end": float(end_frame),
+                      "start_frame": round(float(start), 2),
+                      "end_frame": round(float(end_frame), 2),
+                      "speech": words})
+    return units
 
 
 def should_ocr(cfg: dict, speech_seconds: float,
@@ -120,7 +171,8 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
     )
     progress(f"条目已创建 id={item_id}" + (f"(UP主 {attrs['up']})" if attrs.get("up") else ""))
 
-    # 3) 抽帧(带时间戳,全片覆盖)
+    # 3) 抽帧(带时间戳,全片覆盖)。帧**先不入库**:字幕类视频会在第 6 步用
+    #    "结构单元帧"替换掉这批均匀帧(省一次无用的图像向量计算)
     fcfg = cfg.get("frames", {})
     frames_dir = media / f"item_{item_id}" / "frames"
     progress("场景检测抽帧 ...")
@@ -131,17 +183,9 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
         scene_threshold=fcfg.get("scene_threshold", 0.45),
         decode=fcfg.get("decode", "grab"),
     )
-
-    # 4) 帧入库(图像 chunk)。OCR 放到 ASR 之后:要不要跑要先看有多少语音
-    #    图像向量:装了 Chinese-CLIP 且权重就绪时顺手索引(文字搜画面用)
     ib = memory.image_embedder if _image_embed_enabled(cfg) else None
-    for i, fr in enumerate(frame_list):
-        memory.add_image_chunk(item_id, fr["path"], start_ts=fr["ts"], seq=i,
-                               image_embedder=ib)
-    progress(f"帧入库 {len(frame_list)} 张"
-             + ("(含图像向量)" if ib is not None else "(图像向量未启用)"))
 
-    # 5) ASR 转写 → 合并碎句 → 批量嵌入(一次编码代替数百次)
+    # 4) ASR 转写 → 合并碎句(合并段只用于旧路径;单元路径要句子级)
     acfg = cfg.get("asr", {})
     progress("ASR 转写 ...")
     try:
@@ -157,48 +201,141 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
         logger.warning("ASR 失败,仅保留画面信息: %s", e)
         segments = []
     merged = _merge_asr_segments(segments)
-    memory.add_text_chunks_batch(item_id, [
-        {"content": f"[语音 {progress_fmt(seg['start'])}]\n{seg['text']}",
-         "start_ts": seg["start"], "end_ts": seg["end"], "seq": 100 + i}
-        for i, seg in enumerate(merged)
-    ])
-    progress(f"语音段合并入库 {len(merged)} 段(原始 {len(segments)} 句)")
 
-    # 6) 画面文字 OCR(存档)。默认 auto:人声很少(字幕/无配音视频)才跑,
-    #    否则一个视频等于做两遍识别(ASR + OCR),没必要
+    # 5) OCR 决策 + 视频画像探针(设计稿 design-frame-units.md)
+    #    探针只为"要做 OCR 的视频"跑:旁白视频零额外成本(红线①)
     speech_seconds = sum(max(0.0, s["end"] - s["start"]) for s in segments)
-    want_ocr, reason = should_ocr(cfg, speech_seconds,
-                                  frames_mod.video_duration(video_path))
-    if want_ocr:
-        ocr = OcrReader()
-        hits = 0
-        ocr_texts = []
+    duration = frames_mod.video_duration(video_path)
+    want_ocr, reason = should_ocr(cfg, speech_seconds, duration)
+    ocr = OcrReader() if want_ocr else None
+    profile = None
+    if want_ocr and _probe_enabled(cfg):
+        profile = frames_mod_probe.probe_video(
+            video_path, speech_seconds=speech_seconds, ocr=ocr,
+            hz=float((fcfg.get("probe") or {}).get("hz", 5.0)),
+            text_frames=int((fcfg.get("probe") or {}).get("text_frames", 10)),
+            min_separation=float(
+                (fcfg.get("probe") or {}).get("min_separation", 3.0)))
+        progress(f"视频画像:字幕带 {profile.subtitle_bands or '未判出'} / "
+                 f"事件 {profile.event_count} 个 / {profile.probe_seconds:.0f}s"
+                 + (f" / 异常 {profile.anomalies}" if profile.anomalies else ""))
+
+    # 6) 结构单元化(字幕类视频):动作事件 + 成品展示 → 单元帧
+    units = []
+    if profile is not None and _unit_enabled(cfg) and profile.is_subtitle_led:
+        units = _build_units(profile, segments)
+        if len(units) >= _MIN_UNITS:
+            ts_list = sorted({t for u in units for t in (u["start_frame"], u["end_frame"])})
+            for old in frames_dir.glob("frame_*.jpg"):   # 清掉均匀帧,避免孤儿
+                old.unlink()
+            frame_list = frames_mod.write_frames_at(video_path, frames_dir, ts_list)
+            progress(f"单元化: {len(units)} 个单元 → {len(frame_list)} 帧")
+        else:
+            units = []
+            logger.info("单元数过少(%d < %d),已回退到均匀抽帧", len(units),
+                        _MIN_UNITS)
+    elif profile is not None and _unit_enabled(cfg):
+        progress("画像显示为旁白视频,按均匀抽帧(未单元化)")
+    if not units:
+        progress("按均匀抽帧入库")
+
+    for i, fr in enumerate(frame_list):
+        memory.add_image_chunk(item_id, fr["path"], start_ts=fr["ts"], seq=i,
+                               image_embedder=ib)
+    progress(f"帧入库 {len(frame_list)} 张"
+             + ("(含图像向量)" if ib is not None else "(图像向量未启用)"))
+
+    # 7) 画面文字 OCR —— 双通道(设计稿 §2.5):
+    #    字幕带通道拿字幕(水印在带外,天然清掉);全幅通道低频补"卖点浮层/参数文字"
+    #    (字幕带裁切会把贴在画面任意位置的 `防水 10000mm` 那类文字丢掉)
+    ocfg = (cfg.get("vision") or {}).get("ocr") or {}
+    band_cfg = str(ocfg.get("band", "auto")).lower()
+    full_every = max(1, int(ocfg.get("full_every", 5)))
+    band = None
+    if (ocr is not None and band_cfg != "off" and profile is not None
+            and profile.subtitle_bands):
+        band = profile.subtitle_bands[0]
+    # 探针判出的静态文字带(水印/台标):全幅通道按坐标剔除
+    watermark_bands = (profile.watermark_bands if profile else None)
+    frame_ts2path = {fr["ts"]: fr["path"] for fr in frame_list}
+    frame_text: dict[float, str] = {}
+    ocr_texts, band_hits, full_hits = [], 0, 0
+    if ocr is not None:
         for i, fr in enumerate(frame_list):
-            text = ocr.read_text(fr["path"])
+            parts = []
+            if band is not None:
+                band_text = ocr.read_text(fr["path"], band=band)
+                if band_text:
+                    band_hits += 1
+                    parts.append(band_text)
+                    if not units:      # 旧路径:字幕带单独成块
+                        memory.add_text_chunk(
+                            item_id, f"[字幕 {progress_fmt(fr['ts'])}]\n{band_text}",
+                            start_ts=fr["ts"], seq=200 + i)
+            if band is None or i % full_every == 0:
+                full_frame_text = ocr.read_text(
+                    fr["path"],
+                    exclude_bands=(profile.watermark_bands if profile else None))
+                if full_frame_text:
+                    full_hits += 1
+                    parts.append(full_frame_text)
+                    if not units:      # 旧路径:全幅单独成块(与今天一致)
+                        memory.add_text_chunk(
+                            item_id,
+                            f"[画面文字 {progress_fmt(fr['ts'])}]\n{full_frame_text}",
+                            start_ts=fr["ts"], seq=300 + i)
+            text = "\n".join(p for p in parts if p).strip()
             if text:
-                memory.add_text_chunk(
-                    item_id, f"[画面文字 {progress_fmt(fr['ts'])}]\n{text}",
-                    start_ts=fr["ts"], seq=200 + i,
-                )
+                frame_text[fr["ts"]] = text
                 ocr_texts.append(text)
-                hits += 1
-        ocr_text = "\n".join(ocr_texts)
-        progress(f"画面 OCR 存档 {hits}/{len(frame_list)} 帧有文字({reason})")
+        mode = (f"字幕带 {band[0]*100:.0f}~{band[1]*100:.0f}%" if band else "全幅")
+        progress(f"画面 OCR({mode}):{band_hits} 帧带内文字 / {full_hits} 帧全幅文字"
+                 f"({reason})")
     else:
-        ocr_text = ""
         progress(f"OCR 跳过:{reason}")
 
-    # 7) 汇总正文(检索兜底 + 面板预览 + AI 提取的输入)
+    # 8) 文本块落库
+    if units:   # 单元路径:每单元一条"图文同块"(字幕 + 句子级语音 + 帧图)
+        rows = []
+        for i, u in enumerate(units):
+            words = [w for w in (frame_text.get(u["start_frame"]),
+                                 frame_text.get(u["end_frame"])) if w]
+            pieces = []
+            if words:
+                pieces.append("字幕:" + " ".join(words))
+            if u["speech"]:
+                pieces.append("语音:" + "".join(u["speech"]))
+            content = "\n".join(pieces).strip()
+            if not content:
+                continue
+            rows.append({
+                "content": f"[单元 {progress_fmt(u['start'])}-"
+                           f"{progress_fmt(u['end'])}]\n{content}",
+                "start_ts": u["start"], "end_ts": u["end"], "seq": 100 + i,
+                "media_path": frame_ts2path.get(u["start_frame"]),
+            })
+        memory.add_text_chunks_batch(item_id, rows)
+        progress(f"单元块入库 {len(rows)} 条(字幕/语音/帧图同块)")
+    else:       # 旧路径:合并语音段(与今天完全一致)
+        memory.add_text_chunks_batch(item_id, [
+            {"content": f"[语音 {progress_fmt(seg['start'])}]\n{seg['text']}",
+             "start_ts": seg["start"], "end_ts": seg["end"], "seq": 100 + i}
+            for i, seg in enumerate(merged)
+        ])
+        progress(f"语音段合并入库 {len(merged)} 段(原始 {len(segments)} 句)")
+
+    # 9) 汇总正文(检索兜底 + 面板预览 + AI 提取的输入)
     #    画面文字必须一起进正文:字幕视频的内容全在画面里,
     #    只放语音会让 AI 把"冰淇淋教学"总结成"广告"(真实 #14)
     asr_text = "\n".join(seg["text"] for seg in merged)
-    full_text = "\n".join(t for t in (asr_text, ocr_text) if t.strip()) or None
+    ocr_blob = "\n".join(ocr_texts)
+    full_text = "\n".join(t for t in (asr_text, ocr_blob) if t.strip()) or None
     memory.db.update_item_media(
         item_id, content_text=full_text,
         media_paths=[f["path"] for f in frame_list],
     )
 
-    # 8) 清理临时视频(帧图保留)
+    # 10) 清理临时视频(帧图保留)
     if temp_video is not None and not cfg.get("keep_video"):
         try:
             shutil.rmtree(temp_video.parent / "_downloads", ignore_errors=True)

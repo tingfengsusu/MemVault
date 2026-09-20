@@ -46,13 +46,18 @@ class Memory:
         return self.db.add_item(domain, type_, title, **kw)
 
     def add_text_chunk(self, item_id: int, content: str, start_ts=None,
-                       end_ts=None, seq=None, extra_meta=None) -> int:
-        """文本块:入库 → 嵌入 → 进向量索引。"""
+                       end_ts=None, seq=None, extra_meta=None,
+                       media_path=None) -> int:
+        """文本块:入库 → 嵌入 → 进向量索引。
+
+        media_path 用于"结构单元块":同一单元的字幕/语音文本与它的帧图绑在同一条
+        chunk 里(表已支持),检索命中时能直接看到那一刻的画面。
+        """
         if not content or not content.strip():
             return 0
         chunk_id = self.db.add_chunk(
             item_id, "text", content=content, start_ts=start_ts,
-            end_ts=end_ts, seq=seq,
+            end_ts=end_ts, seq=seq, media_path=media_path,
         )
         item = self.db.get_items([item_id])[item_id]
         meta = {

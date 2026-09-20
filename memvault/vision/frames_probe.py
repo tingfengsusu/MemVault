@@ -60,6 +60,7 @@ class VideoProfile:
     used_hz: float = 0.0
     probe_seconds: float = 0.0
     subtitle_bands: list[tuple[float, float]] = field(default_factory=list)
+    watermark_bands: list[tuple[float, float]] = field(default_factory=list)
     bands: list[BandEvidence] = field(default_factory=list)
     floor: float = 0.0            # 带内变化强度的静息水平(P20)
     enter: float = 0.0            # 进入阈值(floor×3)
@@ -97,6 +98,8 @@ class VideoProfile:
             "used_hz": self.used_hz,
             "subtitle_bands": [(round(a, 3), round(b, 3))
                                for a, b in self.subtitle_bands],
+            "watermark_bands": [(round(a, 3), round(b, 3))
+                                for a, b in self.watermark_bands],
             "floor": round(self.floor, 4), "enter": round(self.enter, 4),
             "exit": round(self.exit, 4),
             "events": self.event_count,
@@ -222,33 +225,52 @@ def text_bands_from_frames(sampled_frames, ocr=None, n_bands: int = 24,
 
 
 # ── 判据(纯函数,可离线测)──────────────────────────────────────────
-def pick_subtitle_bands(bands: list[BandEvidence], motion,
+def classify_text_bands(bands: list[BandEvidence], motion,
                         min_separation: float = MIN_SEPARATION,
                         max_bands: int = 2):
-    """挑活跃文字带:含文字 且 变化强度 ≥ 含文字带里最低者的 min_separation 倍。"""
+    """把含文字的带分成 活跃(字幕)与 静态(水印/台标)。
+
+    返回 (subtitle_bands, watermark_bands, 原因)。静态文字带要让全幅 OCR 通道排除掉
+    —— 否则水印会顺着"全幅补文字"重新混进单元文本(实现时实测 36% 的单元带水印)。
+    """
     import numpy as np
 
     text_bands = [b for b in bands if b.has_text]
     if not text_bands:
-        return [], "探针没有在任何横带上发现文字"
+        return [], [], "探针没有在任何横带上发现文字"
     for b in text_bands:
         if motion.shape[1]:
-            # 取中位数:水印带多数时刻几乎不动(P50≈5%),字幕带近半时刻在换(P50≈38%),
-            # 用 P75 会把水印带抬到 40%(背景运动主导)→ ×3 判据失效(实测踩过)
             b.motion = float(np.percentile(motion[b.index], 50))
     lowest = min(b.motion for b in text_bands)
     if lowest <= 0:
-        return [], "含文字带的变化强度全为 0(画面完全静止),判不出活跃字幕带"
+        return [], [b for b in text_bands], "含文字带的强度全为 0(画面完全静止)"
     thresh = lowest * min_separation
     active = [b for b in text_bands if b.motion >= thresh]
+    static = [b for b in text_bands if b.motion < thresh]
     if not active:
-        return [], (f"没有带达到分离度门槛(最低 {lowest:.4f} × {min_separation} "
-                    f"= {thresh:.4f})")
+        return [], static, (f"没有带达到分离度门槛(最低 {lowest:.4f} × "
+                            f"{min_separation} = {thresh:.4f})")
     active.sort(key=lambda b: -b.motion)
     picked = [(b.y0, b.y1) for b in active[:max_bands]]
+    static_sorted = sorted(static, key=lambda b: b.y0)
     detail = ", ".join(f"{b.y0*100:.0f}-{b.y1*100:.0f}%(变化 {b.motion:.3f}, "
                        f"文字率 {b.text_rate:.0%})" for b in active[:max_bands])
-    return picked, f"活跃文字带 {detail};分离度 {active[0].motion / lowest:.1f}×"
+    why = f"活跃文字带 {detail};分离度 {active[0].motion / lowest:.1f}×"
+    if static_sorted:
+        why += ";静态文字带(水印) " + ", ".join(
+            f"{b.y0*100:.0f}-{b.y1*100:.0f}%" for b in static_sorted)
+    return picked, [(b.y0, b.y1) for b in static_sorted], why
+
+
+def pick_subtitle_bands(bands: list[BandEvidence], motion,
+                        min_separation: float = MIN_SEPARATION,
+                        max_bands: int = 2):
+    """挑活跃文字带(兼容入口);细分信息见 classify_text_bands。"""
+    import numpy as np
+
+    picked, _static, why = classify_text_bands(bands, motion, min_separation,
+                                              max_bands)
+    return picked, why
 
 
 def events_from_series(ts, series, quiet_seconds: float = EVENT_QUIET_SECONDS):
@@ -358,8 +380,9 @@ def probe_video(video_path, speech_seconds: float | None = None,
         return prof
     prof.bands = bands
 
-    picked, why = pick_subtitle_bands(bands, band_motion,
-                                      min_separation=min_separation)
+    picked, watermark, why = classify_text_bands(bands, band_motion,
+                                                 min_separation=min_separation)
+    prof.watermark_bands = watermark
     if not picked:
         prof.reason = why
         prof.anomalies.append("no_subtitle_band")

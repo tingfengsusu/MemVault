@@ -169,3 +169,35 @@ def _by_interval(video_path, out_dir, max_frames, interval) -> list[dict]:
             frames.append({"ts": round(pos / fps, 2), "path": str(p)})
     cap.release()
     return frames
+
+def write_frames_at(video_path, out_dir, timestamps, prefix="unit") -> list[dict]:
+    """按给定时间戳写帧(结构单元用),顺序解码取值,返回 [{"ts","path"}]。
+
+    与 extract_frames 共用落盘命名,便于条目详情页按 seq 展示。
+    """
+    import cv2
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for f in out_dir.glob(f"{prefix}_*.jpg"):
+        f.unlink()
+    wanted = sorted({round(float(t), 2) for t in timestamps})
+    if not wanted:
+        return []
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    targets = {int(round(t * fps)): t for t in wanted}
+    frames, idx = [], 0
+    while targets:
+        if not cap.grab():
+            break
+        if idx in targets:
+            ok, frame = cap.retrieve()
+            if ok:
+                ts = targets.pop(idx)
+                p = out_dir / f"{prefix}_{len(frames):04d}.jpg"
+                cv2.imwrite(str(p), frame)
+                frames.append({"ts": ts, "path": str(p)})
+        idx += 1
+    cap.release()
+    return frames

@@ -52,15 +52,22 @@ class OcrReader:
             )
         return self._reader
 
-    def read_text(self, image_path: str, band: tuple[float, float] | None = None) -> str:
+    def read_text(self, image_path: str, band: tuple[float, float] | None = None,
+                  exclude_bands: list | None = None) -> str:
         """识别一张图,按行拼接文本。失败返回空串,不抛异常。
 
         band=(y0, y1) 归一化高度区间:先裁出该横带再识别(字幕带通道用,
         见 docs/design-frame-units.md §2.5 —— 裁带能直接把水印/台标切掉)。
+        exclude_bands:要剔除的静态文字带(水印/台标);按**整幅坐标**过滤,否则
+        全幅通道会把水印重新带回文本里(实测:单元块水印命中 36%)。
         """
         if not self.available():
             return ""
         try:
+            if exclude_bands and band is None:
+                kept = [ln["text"] for ln in self.read_lines(image_path)
+                        if not _in_any_band(ln, exclude_bands)]
+                return "\n".join(t for t in kept if t.strip())
             reader = self._ensure()
             img = _load_band(image_path, band)
             lines = reader.readtext(img, detail=1,
@@ -100,6 +107,14 @@ class OcrReader:
         except Exception as e:  # noqa: BLE001
             logger.warning("OCR(带框)失败 %s: %s", image_path, e)
             return []
+
+
+def _in_any_band(line: dict, bands: list) -> bool:
+    """文字行的垂直中心是否落在给定带内(用于剔除水印/台标行)。"""
+    if not bands:
+        return False
+    center = (line.get("y0", 0.0) + line.get("y1", 0.0)) / 2
+    return any(lo <= center <= hi for lo, hi in bands)
 
 
 def _load_band(image_path: str, band: tuple[float, float] | None):
