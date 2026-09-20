@@ -243,6 +243,13 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
     units = []
     if profile is not None and _unit_enabled(cfg) and profile.is_subtitle_led:
         units = _build_units(profile, segments)
+        max_units = int((cfg.get("frames") or {}).get("max_units", 120) or 0)
+        if max_units and len(units) > max_units:
+            # 等距抽样但**首尾都保留**(结尾常是成品展示,不能丢)
+            last = len(units) - 1
+            idx = [round(i * last / (max_units - 1)) for i in range(max_units)]
+            units = [units[i] for i in sorted(set(idx))]
+            progress(f"单元数超上限,均匀抽样到 {len(units)} 个(max_units={max_units})")
         if len(units) >= _MIN_UNITS:
             ts_list = sorted({t for u in units for t in (u["start_frame"], u["end_frame"])})
             for old in frames_dir.glob("frame_*.jpg"):   # 清掉均匀帧,避免孤儿

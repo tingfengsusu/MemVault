@@ -237,11 +237,13 @@ onMounted(() => { load(); loadBindings() })
             <td>{{ s.asr.model }} · device={{ s.asr.device }} · {{ s.asr.compute_type }}</td></tr>
         <tr><th>抽帧</th>
             <td>
-              <b>均匀抽帧</b>(上限 {{ s.frames.max_frames }} 帧 · 间隔 {{ s.frames.frame_interval }}s ·
-              场景阈值 {{ s.frames.scene_threshold }})
-              <span class="muted">— 只用于未单元化的视频</span><br>
-              <b>结构单元化</b>:{{ s.frames.unit === 'off' ? '关闭(全部走均匀抽帧)' :
-                'auto(字幕类视频按动作事件/成品展示落库,帧数 = 单元数 × 2,不受上限约束)' }}<br>
+              <b>主路径 · 结构单元化</b>:{{ s.frames.unit === 'off' ?
+                '已关闭(全部回退到均匀抽帧)' :
+                'auto(字幕类视频按动作事件/成品展示落库,帧数 = 单元数 × 2;单元数上限 ' +
+                 (s.frames.max_units || '无') + ')' }}<br>
+              <b>旧路径 · 均匀抽帧</b>(仅未命中单元化的视频;上限 {{ s.frames.max_frames }} 帧,
+              间隔 {{ s.frames.frame_interval }}s、场景阈值 {{ s.frames.scene_threshold }})
+              <span class="muted">— 上限只限数量:间隔会自动放大,帧仍铺满全片</span><br>
               <span class="muted">解码:{{ s.frames.decode === 'seek' ? '逐点定位(慢)' : '顺序解码(快)' }} ·
               画像探针:{{ s.frames.probe?.enabled }} · {{ s.frames.probe?.hz }}Hz ·
               {{ s.frames.probe?.bands }} 条带 · 分离度 ≥{{ s.frames.probe?.min_separation }}×</span>

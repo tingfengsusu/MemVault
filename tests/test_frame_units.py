@@ -177,3 +177,23 @@ def test_switches_accept_yaml_booleans():
     assert should_ocr({"vision": {"ocr": {"enabled": "off"}}}, 0, 100)[0] is False
     assert should_ocr({"vision": {"ocr": {"enabled": True}}}, 100, 100)[0] is True
     assert should_ocr({"vision": {"ocr": {"enabled": "on"}}}, 100, 100)[0] is True
+
+
+def test_max_units_caps_unit_count():
+    """长视频防成本:单元数超 frames.max_units 时均匀抽样(保持全片覆盖,只降密度)。"""
+    from memvault.config import DEFAULTS
+
+    assert DEFAULTS["frames"]["max_units"] >= 50        # 设计稿 §5 要求的上限
+
+    # 抽样逻辑(与管线里同一算法):48 个单元压到 24 → 隔一个取一个
+    units = [{"start": i * 5.0, "end": i * 5.0 + 3, "start_frame": i * 5.0,
+              "end_frame": i * 5.0 + 3, "speech": []} for i in range(48)]
+    max_units = 24
+    last = len(units) - 1
+    idx = sorted({round(i * last / (max_units - 1)) for i in range(max_units)})
+    picked = [units[i] for i in idx]
+    assert len(picked) == 24
+    assert picked[0]["start"] == 0.0                      # 首个保留
+    assert picked[-1]["start"] == last * 5.0              # 结尾也保留(成品展示常在这里)
+    starts = [u["start"] for u in picked]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)

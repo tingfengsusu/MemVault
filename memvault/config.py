@@ -25,6 +25,8 @@ DEFAULTS = {
                "decode": "grab",
                # unit=按"动作事件单元"落库(字幕类视频);off 回旧块布局(零回归)
                "unit": "auto",
+               # 单位化视频的单元数上限(长视频 OCR 成本随单元数线性,超了就均匀抽样单元)
+               "max_units": 120,
                # probe=视频画像探针(设计稿第 0 步)
                "probe": {"enabled": "auto", "hz": 5.0, "bands": 24,
                          "text_frames": 10, "min_separation": 3.0}},
