@@ -9,7 +9,8 @@ import ToastHost from '../components/ToastHost.vue'
 import { showToast } from '../lib/toast.js'
 import { ApiError, api, bindingApi, settingsApi } from '../api/client.js'
 
-const s = ref({ llm: {}, asr: {}, embedding: {}, vision: {}, frames: {}, links: {}, clips: {} })
+const s = ref({ llm: {}, asr: {}, embedding: {}, vision: {}, frames: {},
+                links: {}, clips: {}, usage: {} })
 const loading = ref(true)
 const busy = ref(false)
 const testResult = ref(null)
@@ -36,6 +37,11 @@ const KIND_LABELS = { up: 'UP主', up_set: 'UP集', domain: '领域',
                       source_type: '来源类型', keyword: '标题关键词' }
 const STAGE_LABELS = { extract: '提取(内容描述)', router: '分类(路由)',
                        clip: '关键片段', frames: '抽帧画像' }
+const PROFILE_LABELS = {
+  extract: '通用提取(按分类选题)',
+  shopping_review: '购物复盘(商品/卖点/证据)',
+}
+const profileLabel = (p) => PROFILE_LABELS[p] ? `${PROFILE_LABELS[p]} · ${p}` : p
 const kindLabel = (k) => KIND_LABELS[k] || k
 const stageLabel = (st) => STAGE_LABELS[st] || st
 
@@ -144,7 +150,7 @@ onMounted(() => { load(); loadBindings() })
           <span class="tag gray">{{ kindLabel(r.kind) }}</span>
           <span style="min-width:150px">
             {{ r.label || '—' }}<span class="muted"> {{ r.target }}</span></span>
-          <span class="tag">{{ r.prompt_name }}</span>
+          <span class="tag" :title="r.prompt_name">{{ profileLabel(r.prompt_name) }}</span>
           <span class="muted">{{ stageLabel(r.stage) }}</span>
           <span class="muted" style="font-size:12px">{{ r.note || '' }}</span>
           <button class="ghost" :disabled="busy" @click="removeRule(r)">解除</button>
@@ -164,7 +170,7 @@ onMounted(() => { load(); loadBindings() })
                  : '标题里出现的关键词'"
                required style="min-width:230px">
         <select v-model="newRule.prompt_name">
-          <option v-for="p in profiles" :key="p" :value="p">{{ p }}</option>
+          <option v-for="p in profiles" :key="p" :value="p">{{ profileLabel(p) }}</option>
         </select>
         <select v-model="newRule.stage">
           <option v-for="st in stages" :key="st" :value="st">{{ stageLabel(st) }}</option>
@@ -241,9 +247,12 @@ onMounted(() => { load(); loadBindings() })
                 '已关闭(全部回退到均匀抽帧)' :
                 'auto(字幕类视频按动作事件/成品展示落库,帧数 = 单元数 × 2;单元数上限 ' +
                  (s.frames.max_units || '无') + ')' }}<br>
-              <b>旧路径 · 均匀抽帧</b>(仅未命中单元化的视频;上限 {{ s.frames.max_frames }} 帧,
-              间隔 {{ s.frames.frame_interval }}s、场景阈值 {{ s.frames.scene_threshold }})
+              <b>兜底路径 · 均匀抽帧</b>(未命中单元化时用:旁白类视频、探针判不出、
+              unit=off 回退;上限 {{ s.frames.max_frames }} 帧,间隔 {{ s.frames.frame_interval }}s、
+              场景阈值 {{ s.frames.scene_threshold }})
               <span class="muted">— 上限只限数量:间隔会自动放大,帧仍铺满全片</span><br>
+              <span class="muted">本库用法:结构单元化 {{ s.usage?.unitized ?? 0 }} 条视频 /
+                均匀抽帧 {{ s.usage?.uniform ?? 0 }} 条(共 {{ s.usage?.videos ?? 0 }} 条)</span><br>
               <span class="muted">解码:{{ s.frames.decode === 'seek' ? '逐点定位(慢)' : '顺序解码(快)' }} ·
               画像探针:{{ s.frames.probe?.enabled }} · {{ s.frames.probe?.hz }}Hz ·
               {{ s.frames.probe?.bands }} 条带 · 分离度 ≥{{ s.frames.probe?.min_separation }}×</span>

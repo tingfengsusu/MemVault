@@ -742,7 +742,16 @@ def build_router(memory, cfg: dict) -> APIRouter:
         llm.pop("api_key", None)
         llm.pop("web", None)
         llm["api_key_set"] = bool(key)
-        return ok({"llm": llm, "asr": cfg.get("asr", {}),
+        conn = memory.db._conn()
+        unitized = conn.execute(
+            "SELECT COUNT(DISTINCT item_id) c FROM chunks"
+            " WHERE modality='text' AND content LIKE '[单元%'").fetchone()["c"]
+        videos = conn.execute(
+            "SELECT COUNT(*) c FROM items WHERE type='video'").fetchone()["c"]
+        return ok({"usage": {"unitized": unitized,
+                             "uniform": max(0, videos - unitized),
+                             "videos": videos},
+                   "llm": llm, "asr": cfg.get("asr", {}),
                    "embedding": cfg.get("embedding", {}),
                    "vision": cfg.get("vision", {}),
                    "frames": cfg.get("frames", {}),
