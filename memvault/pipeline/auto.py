@@ -34,4 +34,17 @@ def auto_process(payload: dict, memory, cfg: dict, llm=None,
         extract_item(memory, llm, pstore, item_id, cfg)
     except Exception as e:  # noqa: BLE001 — 提取失败不影响已完成的分类
         logger.warning("item=%s 属性提取失败:%s", item_id, e)
+
+    # 关键片段:命中提示词规则(购物向)且有结构单元的条目才跑 —— 独立的小 schema 调用
+    try:
+        from memvault.classify import extract_clips
+        from memvault.prompts import resolve_prompt_name
+
+        item = memory.get_item(item_id)
+        if item and resolve_prompt_name(memory, item, stage="extract"):
+            n = len(extract_clips(memory, llm, pstore, item_id, cfg))
+            if n:
+                logger.info("item=%s 关键片段 %d 段", item_id, n)
+    except Exception as e:  # noqa: BLE001 — 片段失败不影响分类与提取
+        logger.warning("item=%s 关键片段失败:%s", item_id, e)
     return result

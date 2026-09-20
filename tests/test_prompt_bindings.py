@@ -66,8 +66,8 @@ def test_snap_clips_to_units(memory):
     assert out2[0]["start_ts"] == 1.0 and out2[0]["end_ts"] == 4.0
 
 
-def test_extract_writes_clips_when_profile_hits(memory, pstore):
-    """命中规则 → 用购物复盘提示词 → 「关键片段」落成 clips(幂等替换)。"""
+def test_extract_uses_profile_and_validates_schema(memory, pstore):
+    """命中规则 → 用购物复盘提示词;返回不符合 schema 时**不写 attrs**(实测踩过)。"""
 
     class StubLLM:
         enabled = True
@@ -81,27 +81,23 @@ def test_extract_writes_clips_when_profile_hits(memory, pstore):
 
     item = memory.add_item("general", "video", "带货视频",
                            attrs={"up": "某UP", "up_mid": "999"})
-    memory.add_text_chunk(item, "[单元 00:00-00:10]\n字幕:今天这件外套", start_ts=0.0,
-                          end_ts=10.0, seq=100)
+    memory.add_text_chunk(item, "[单元 00:00-00:10]\n字幕:今天这件外套",
+                          start_ts=0.0, end_ts=10.0, seq=100)
     memory.db.bind_prompt("up", "999", "shopping_review")
 
     resp = {"商品": [{"名称": "冲锋衣", "价格": "899"}],
-            "卖点": [{"点": "抗风", "证据": "原话", "ts": 3.0, "来源": "asr"}],
-            "关键片段": [{"start": 0.5, "end": 8.0, "kind": "卖点演示",
-                          "reason": "面料演示", "confidence": 0.9}]}
+            "卖点": [{"点": "抗风", "证据": "原话", "ts": 3.0, "来源": "asr"}]}
     from memvault.classify import extract_item
 
     out = extract_item(memory, StubLLM(resp), pstore, item)
-    assert out["profile"] == "shopping_review" and out["clips"] == 1
-    clips = memory.db.clips_for_item(item)
-    assert clips[0]["kind"] == "卖点演示" and clips[0]["start_ts"] == 0.0
-    assert clips[0]["end_ts"] == 10.0             # 吸附到单元边界
+    assert out["profile"] == "shopping_review"
     import json
     assert json.loads(memory.get_item(item)["attrs_ai"])["卖点"][0]["点"] == "抗风"
 
-    # 再跑一次不累积(整体替换)
-    extract_item(memory, StubLLM(resp), pstore, item)
-    assert len(memory.db.clips_for_item(item)) == 1
+    # 模型跑偏(返回无关结构)→ schema 校验拦住,不覆盖已有 attrs
+    out2 = extract_item(memory, StubLLM({"type": "text", "content": "…"}), pstore, item)
+    assert out2.get("error") == "schema_mismatch"
+    assert json.loads(memory.get_item(item)["attrs_ai"])["卖点"][0]["点"] == "抗风"
 
 
 def test_item_api_exposes_clips(memory, tmp_path):
@@ -287,3 +283,100 @@ def test_frames_profile_cache_api(tmp_path):
         assert client2.post("/api/frames-profiles/clear",
                             json={"up_mid": "777"}).json()["data"]["removed"] == 1
         assert client2.get("/api/prompt-bindings").json()["data"]["caches"] == []
+
+
+# ── 关键片段:独立小 schema 调用(单元编号引用)──────────────────────
+def _units(memory, item, spans):
+    for i, (s, e) in enumerate(spans):
+        memory.add_text_chunk(item, f"[单元 {s:.0f}-{e:.0f}]\n字幕:单元{i+1}内容",
+                              start_ts=s, end_ts=e, seq=100 + i)
+
+
+def test_extract_clips_maps_unit_ids(memory, pstore):
+    """模型只引用单元编号 → 时间戳取单元边界;引用不存在的编号被丢弃。"""
+    from memvault.classify import extract_clips
+
+    class Stub:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            assert "只引用单元编号" in system          # 用的是小 schema 提示词
+            assert "#1" in user and "#3" in user       # 单元列表带编号
+            return {"clips": [
+                {"from_unit": 1, "to_unit": 2, "kind": "卖点演示",
+                 "reason": "面料演示", "confidence": 0.9},
+                {"from_unit": 3, "to_unit": 3, "kind": "价格播报"},
+                {"from_unit": 9, "to_unit": 9, "kind": "越界"},   # 不存在 → 丢
+                {"from_unit": 2, "to_unit": 1, "kind": "倒序"},   # 倒序 → 自动摆正
+            ]}
+
+    item = memory.add_item("general", "video", "带货视频")
+    _units(memory, item, [(0.0, 10.0), (10.0, 22.0), (22.0, 30.0)])
+    clips = extract_clips(memory, Stub(), pstore, item)
+    kinds = sorted(c["kind"] for c in clips)
+    assert "越界" not in kinds
+    # 倒序那条(2→1)与"卖点演示"同区间 → 去重,只剩 2 段
+    assert len(clips) == 2
+    by_kind = {c["kind"]: c for c in clips}
+    assert by_kind["卖点演示"]["start_ts"] == 0.0 and by_kind["卖点演示"]["end_ts"] == 22.0
+    assert by_kind["价格播报"]["start_ts"] == 22.0 and by_kind["价格播报"]["end_ts"] == 30.0
+    # 落库且幂等
+    assert len(memory.db.clips_for_item(item)) == 2
+    extract_clips(memory, Stub(), pstore, item)
+    assert len(memory.db.clips_for_item(item)) == 2
+
+
+def test_extract_clips_handles_bad_shapes(memory, pstore):
+    """返回结构不符/无单元/异常时都安静返回空(不影响主流程)。"""
+    from memvault.classify import extract_clips
+
+    class Bad:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            return {"type": "text", "content": "..."}     # 模型跑偏的返回
+
+    class Boom:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            raise RuntimeError("budget")
+
+    no_units = memory.add_item("general", "video", "没有单元的")
+    assert extract_clips(memory, Bad(), pstore, no_units) == []
+
+    item = memory.add_item("general", "video", "有单元的")
+    _units(memory, item, [(0.0, 10.0)])
+    assert extract_clips(memory, Bad(), pstore, item) == []
+    assert extract_clips(memory, Boom(), pstore, item) == []
+    assert memory.db.clips_for_item(item) == []
+
+
+def test_auto_process_runs_clip_extraction_only_with_rule(memory, cfg, pstore, monkeypatch):
+    """自动流程:只有命中规则的条目才跑关键片段(成本门控)。"""
+    from memvault.pipeline import auto as auto_mod
+
+    calls = []
+
+    class StubLLM:
+        enabled = True
+
+        def chat_json(self, system, user, **kw):
+            if "购物向视频复盘" in system:
+                return {"商品": [{"名称": "x"}], "卖点": []}
+            return {"clips": []}
+
+    monkeypatch.setattr("memvault.classify.extract_clips",
+                        lambda m, llm, ps, iid, cfg=None: calls.append(iid) or [])
+    item = memory.add_item("general", "video", "带货视频",
+                           attrs={"up": "某UP", "up_mid": "555"})
+    memory.add_text_chunk(item, "[单元 00:00-00:10]\n字幕:x", start_ts=0.0, end_ts=10.0)
+    # 未绑规则 → 不跑
+    auto_mod.auto_process({"item_id": item}, memory, cfg, llm=StubLLM(),
+                          pstore=pstore)
+    assert calls == []
+    # 绑规则 → 跑
+    memory.db.bind_prompt("up", "555", "shopping_review")
+    auto_mod.auto_process({"item_id": item}, memory, cfg, llm=StubLLM(),
+                          pstore=pstore)
+    assert calls == [item]

@@ -120,6 +120,8 @@ class PromptStore:
         self.db._conn().commit()
         if self.get_active("shopping_review", "extract") is None:
             self.new_version("shopping_review", "extract", SHOPPING_REVIEW_PROMPT)
+        if self.get_active("clip_extract", "clip") is None:
+            self.new_version("clip_extract", "clip", CLIP_EXTRACT_PROMPT)
         active = self.get_active("extract", "extract", None)
         if active is None:
             # 保留 {category} / {ads_policy} 占位符,运行期再替换
@@ -222,19 +224,16 @@ SHOPPING_REVIEW_PROMPT = """你在为「购物向视频复盘」提取结构化�
   "卖点": [{"点": "", "证据": "原文片段", "ts": 0.0, "来源": "asr|ocr|frame"}],
   "目标人群": {"人群": "", "场景": ""},
   "内容结构": [{"段": "", "start": 0, "end": 0}],
-  "关键片段": [{"start": 0, "end": 0, "kind": "价格播报|卖点演示|对比|上身效果|尺码建议|广告", "reason": "", "confidence": 0.8}],
   "内容标签": ["风格/场景/季节/材质等标签"],
   "模态说明": "内容来自口播/画面字幕/画面描述中的哪些"
 }
 
 规则:
-0. **输出要短**:卖点最多 8 条、关键片段最多 6 条、内容结构最多 8 段、
-   标签最多 8 个;证据字段只留原文关键词(≤20 字),不要整段抄写;
+0. **输出要短**:卖点最多 8 条、内容结构最多 8 段、标签最多 8 个;
+   证据字段只留原文关键词(≤20 字),不要整段抄写;
 1. 卖点必须给"证据"(原话或画面文字)与 ts(该内容出现的大致秒数);
-2. 关键片段的 start/end 用秒,互相不重叠、按时间升序;没有把握就不要给该片段;
 3. 时间戳只允许取内容里出现过的时间或据此推算,不得虚构;
 4. 内容里没有的字段留空数组/空字符串,不要编造;
-5. 若是纯广告段(无产品信息),在关键片段里用 kind="广告" 标出区间。
 """
 
 
@@ -264,3 +263,15 @@ def resolve_prompt_name(memory, item: dict, stage: str = "extract") -> str | Non
         if kind == "keyword" and target and target in (item.get("title") or ""):
             return r["prompt_name"]
     return None
+
+CLIP_EXTRACT_PROMPT = """下面按顺序给出一条视频的**结构单元**(编号 / 时间 / 该单元的字幕与语音文本)。请标出其中的关键片段。
+
+输出 JSON(严格,不要多余文字):
+{"clips": [{"from_unit": 1, "to_unit": 2, "kind": "卖点演示", "reason": "一句话", "confidence": 0.8}]}
+
+规则:
+1. **只引用单元编号**(from_unit/to_unit 都必须是下面列表里出现过的编号),不要自己编时间;
+2. kind 只能取:价格播报 / 卖点演示 / 对比 / 上身效果 / 尺码建议 / 广告;
+3. 最多 6 段,按时间升序、互不重叠;没有把握就不要给;
+4. 纯推广/带货段落用 kind="广告"。字段名必须是 clips,顶层就只有这一个键。
+"""

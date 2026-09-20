@@ -293,7 +293,7 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
     # 形状校验:profile 提示词返回的必须含约定字段之一,否则视为"模型没按 schema 答"
     # (实测推理型模型在长 schema 下会返回 {"type","content"} 这类无关结构,不能写进 attrs)
     if profile_name:
-        expected = {"商品", "卖点", "关键片段", "内容标签", "目标人群", "内容结构"}
+        expected = {"商品", "卖点", "内容标签", "目标人群", "内容结构"}
         if not (expected & set(resp if isinstance(resp, dict) else {})):
             logger.warning("item=%s profile=%s 返回不符合 schema,键=%s;跳过写入",
                            item_id, profile_name,
@@ -311,22 +311,74 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
     memory.db._conn().commit()
 
     # 购物复盘 profile:把「关键片段」落成 clips(购物稿 ②);边界吸附到结构单元
-    clips = []
-    if profile_name and isinstance(resp.get("关键片段"), list):
-        import os as _os
+    return {"attrs": extracted, "category": cat_name, "profile": profile_name}
 
-        snap_on = str(((cfg or {}).get("clips") or {}).get("snap", "on")).lower() != "off"
-        if snap_on:
-            from memvault.links import snap_clips_to_units
+def extract_clips(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> list[dict]:
+    """独立的小 schema 调用:只产出「关键片段」,按**单元编号**引用(购物稿 §3 约定 3)。
 
-            clips = snap_clips_to_units(memory, item_id, resp["关键片段"])
-        else:   # 回退:直接用 LLM 给的边界
-            clips = [{"start_ts": float(c.get("start") or 0.0),
-                      "end_ts": (float(c["end"]) if c.get("end") is not None else None),
-                      "kind": c.get("kind") or "片段", "reason": c.get("reason"),
-                      "confidence": c.get("confidence")}
-                     for c in resp["关键片段"] if c.get("start") is not None]
-        n = memory.db.set_clips(item_id, clips)
-        logger.info("item=%s 关键片段入库 %d 条(snap=%s)", item_id, n, snap_on)
-    return {"attrs": extracted, "category": cat_name,
-            "profile": profile_name, "clips": len(clips)}
+    为什么单独一次调用:把片段塞进大 schema 时,推理型模型的思考 token 会吃光预算、
+    JSON 被截断(真实 #14 实测:8000 预算才返回且结构不符)。拆出来以后输出短,
+    且校验从"ts 近似"升级为"引用的单元编号必须存在"。
+    """
+    item = memory.get_item(item_id)
+    if not item:
+        return []
+    units = [c for c in item.get("chunks", [])
+             if c["modality"] == "text" and (c["content"] or "").startswith("[单元")
+             and c.get("start_ts") is not None]
+    if not units:
+        logger.info("item=%s 没有结构单元,跳过关键片段", item_id)
+        return []
+    units.sort(key=lambda c: c.get("start_ts") or 0.0)
+    lines = []
+    for i, c in enumerate(units, start=1):
+        body = (c["content"] or "").split("\n", 1)[-1].replace("\n", " ")
+        lines.append(f"#{i} {_fmt_ts(c['start_ts'])}-"
+                     f"{_fmt_ts(c.get('end_ts') or c['start_ts'])} | {body[:110]}")
+    prompt = pstore.get_active("clip_extract", "clip")
+    if prompt is None:
+        pstore.ensure_seed()
+        prompt = pstore.get_active("clip_extract", "clip")
+    user = (f"条目标题:{item['title']}\n"
+            f"单元列表(共 {len(units)} 个):\n" + "\n".join(lines))
+    try:
+        resp = llm.chat_json(prompt["content"], user)
+    except Exception as e:  # noqa: BLE001 — 片段失败不影响提取结果
+        logger.warning("item=%s 关键片段调用失败:%s", item_id, e)
+        return []
+    raw = resp.get("clips") if isinstance(resp, dict) else None
+    if not isinstance(raw, list):
+        logger.warning("item=%s 关键片段返回结构不符(键=%s)", item_id,
+                       list(resp)[:5] if isinstance(resp, dict) else type(resp))
+        raw = []
+
+    clips, seen = [], set()
+    for c in raw:
+        try:
+            i = int(c.get("from_unit")) - 1
+            j = int(c.get("to_unit", c.get("from_unit"))) - 1
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= i < len(units) and 0 <= j < len(units)):
+            logger.info("item=%s 关键片段引用了不存在的单元 %s→%s,丢弃",
+                        item_id, c.get("from_unit"), c.get("to_unit"))
+            continue
+        lo, hi = (units[i], units[j]) if i <= j else (units[j], units[i])
+        span = (round(float(lo["start_ts"]), 2),
+                round(float(hi.get("end_ts") or hi["start_ts"]), 2))
+        if span in seen:
+            continue
+        seen.add(span)
+        clips.append({"start_ts": span[0], "end_ts": span[1],
+                      "kind": str(c.get("kind") or "片段"),
+                      "reason": c.get("reason"),
+                      "confidence": c.get("confidence")})
+    clips.sort(key=lambda x: x["start_ts"])
+    memory.db.set_clips(item_id, clips)
+    logger.info("item=%s 关键片段 %d 段(单元引用校验通过)", item_id, len(clips))
+    return clips
+
+
+def _fmt_ts(sec) -> str:
+    m, s = divmod(int(float(sec)), 60)
+    return f"{m:02d}:{s:02d}"
