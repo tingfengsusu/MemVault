@@ -219,3 +219,71 @@ def test_clips_snap_switch_config():
     from memvault.config import DEFAULTS
 
     assert DEFAULTS["clips"]["snap"] in ("on", "off")
+
+
+# ── 管理面:规则绑定 API ─────────────────────────────────────────────
+def _client(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from memvault.config import load_config
+    from memvault.server.app import create_app
+
+    cfg = load_config()
+    cfg["data_dir"] = str(tmp_path / "data")
+    cfg["embedding"]["fake"] = True
+    cfg["llm"] = dict(cfg["llm"], api_key=None)
+    return TestClient(create_app(cfg)), cfg
+
+
+def test_prompt_binding_api_crud(tmp_path):
+    """设置页用的规则管理接口:列表 / 绑定 / 解绑 / 清画像缓存。"""
+    client, cfg = _client(tmp_path)
+    with client:
+        d = client.get("/api/prompt-bindings").json()["data"]
+        assert "shopping_review" in d["profiles"]          # 种子 profile 已就绪
+        assert d["kinds"][0] == "up" and d["items"] == []
+
+        r = client.post("/api/prompt-bindings", json={
+            "kind": "up", "target": "12345",
+            "prompt_name": "shopping_review", "note": "带货号"})
+        assert r.status_code == 200 and r.json()["ok"]
+        d2 = client.get("/api/prompt-bindings").json()["data"]
+        assert d2["items"][0]["target"] == "12345"
+        assert d2["items"][0]["note"] == "带货号"
+
+        # 非法 kind / 不存在的 profile
+        assert client.post("/api/prompt-bindings",
+                           json={"kind": "wat", "target": "1",
+                                 "prompt_name": "shopping_review"}).status_code == 422
+        bad = client.post("/api/prompt-bindings",
+                          json={"kind": "up", "target": "1",
+                                "prompt_name": "no_such_profile"})
+        assert bad.status_code == 404
+        assert bad.json()["error"]["code"] == "not_found"
+
+        # 解绑
+        assert client.post("/api/prompt-bindings/unbind", json={
+            "kind": "up", "target": "12345"}).json()["data"]["removed"] == 1
+        assert client.get("/api/prompt-bindings").json()["data"]["items"] == []
+
+
+def test_frames_profile_cache_api(tmp_path):
+    """UP 画像缓存:采集后写入,管理面可见并可清除(第 4 步的可见性)。"""
+    client, cfg = _client(tmp_path)
+    with client:
+        m = client.app.state.memory if hasattr(client, "app") else None
+    # 直接操作 app.state.memory 更稳
+    from fastapi.testclient import TestClient
+
+    client2, cfg2 = _client(tmp_path / "b")
+    with client2:
+        app_mem = client2.app.state.memory
+        app_mem.db.save_frames_profile("777", {"subtitle_bands": [[0.5, 0.542]],
+                                               "event_hz": 0.2, "speech_ratio": 0.08,
+                                               "duration": 391.0})
+        d = client2.get("/api/prompt-bindings").json()["data"]
+        assert d["caches"] and d["caches"][0]["up_mid"] == "777"
+        assert d["caches"][0]["speech_ratio"] == 0.08
+        assert client2.post("/api/frames-profiles/clear",
+                            json={"up_mid": "777"}).json()["data"]["removed"] == 1
+        assert client2.get("/api/prompt-bindings").json()["data"]["caches"] == []

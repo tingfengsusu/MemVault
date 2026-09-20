@@ -262,7 +262,7 @@ def extract_item(memory, llm, pstore, item_id: int, cfg: dict | None = None) -> 
     prompt = None
     profile_name = resolve_prompt_name(memory, item, stage="extract")
     if profile_name:
-        prompt = pstore.get_active("extract", profile_name)
+        prompt = pstore.get_active(profile_name, "extract")
         if prompt is not None:
             logger.info("item=%s 命中提示词规则 → profile=%s", item_id, profile_name)
     if prompt is None and category:

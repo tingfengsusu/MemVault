@@ -113,8 +113,13 @@ class PromptStore:
     def ensure_seed(self):
         if not self.get_active("router", "classify"):
             self.new_version("router", "classify", ROUTER_PROMPT)
-        if self.get_active("extract", "shopping_review") is None:
-            self.new_version("extract", "shopping_review", SHOPPING_REVIEW_PROMPT)
+        # 归一化:此前参数写反过,把 (name='extract', stage='shopping_review') 摆正
+        self.db._conn().execute(
+            "UPDATE prompts SET name='shopping_review', stage='extract'"
+            " WHERE name='extract' AND stage='shopping_review'")
+        self.db._conn().commit()
+        if self.get_active("shopping_review", "extract") is None:
+            self.new_version("shopping_review", "extract", SHOPPING_REVIEW_PROMPT)
         active = self.get_active("extract", "extract", None)
         if active is None:
             # 保留 {category} / {ads_policy} 占位符,运行期再替换

@@ -69,6 +69,14 @@ export const chatApi = {
   send: (message, skill = 'general') => api.post('/api/chat', { message, skill }),
 }
 
+export const bindingApi = {
+  list: () => api.get('/api/prompt-bindings'),
+  add: (payload) => api.post('/api/prompt-bindings', payload),
+  remove: (kind, target, stage = 'extract') =>
+    api.post('/api/prompt-bindings/unbind', { kind, target, stage }),
+  clearCache: (upMid) => api.post('/api/frames-profiles/clear', { up_mid: upMid }),
+}
+
 export const settingsApi = {
   save: (payload) => api.post('/api/settings', payload),
   test: () => api.post('/api/settings/test', {}),

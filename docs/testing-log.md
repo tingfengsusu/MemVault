@@ -708,3 +708,24 @@ API 暴露 clips、表在 SCHEMA 内),全套 **155 passed**。
 
 **仍未做**:管理面入口(设置页绑规则/看画像缓存)、关键片段独立小 schema 调用(长 schema
 被推理模型截断的正面修法)。
+
+### 管理面入口(设置页)+ 一处参数顺序 bug
+
+**设置页新增两块**(Vue `SettingsView.vue`,数据走 `/api/prompt-bindings`):
+- 「提示词规则」:列出已绑规则(类型/目标/profile/stage/备注)+ 绑定表单
+  (kind ∈ up/up_set/domain/source_type/keyword、target、profile 下拉、stage、备注)+ 解除;
+- 「UP 画像缓存」:列出探针缓存的常规形态(字幕带/事件频率/人声占比/时长)+ 清除
+  (清除后下次采集重新生成)。
+
+API:`GET /api/prompt-bindings`(含 `profiles`/`kinds`/`stages`/`caches`)、
+`POST /api/prompt-bindings`、`POST /api/prompt-bindings/unbind`、
+`POST /api/frames-profiles/clear`;真机 curl 已验证绑定/解绑/缓存列表。
+
+**修掉一个参数顺序 bug**:`PromptStore.get_active(name, stage, category_id)` 我此前写成了
+`get_active("extract", "shopping_review")`,于是种子提示词存成了
+`(name='extract', stage='shopping_review')` —— 因为**读写都反了**所以功能"碰巧能跑"
+(真实 LLM 那次确实用了购物复盘提示词),但 API 的 profile 列表(按 stage='extract' 查)
+看不到它。已修:种子与读取顺序摆正,并在 `ensure_seed` 里一次性归一老库里的错位行
+(真实库现已显示 `['extract', 'shopping_review']`)。
+
+测试 162 passed(+2:规则 API 增删查与错误码、画像缓存列表与清除)。

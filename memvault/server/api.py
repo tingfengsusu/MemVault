@@ -587,6 +587,74 @@ def build_router(memory, cfg: dict) -> APIRouter:
             fail("llm_error", f"LLM 调用失败:{str(e)[:200]}", 502)
         return ok(out)
 
+    # ── 提示词规则绑定(购物稿 ① 的管理面)────────────────────────────
+    @api.get("/prompt-bindings")
+    def prompt_bindings():
+        """规则列表 + 可选的 profile + 已缓存的 UP 画像。"""
+        from memvault.prompts import PromptStore
+
+        PromptStore(memory.db).ensure_seed()   # 种子提示词懒建,这里兜一下
+        rows = memory.db.prompt_bindings(stage=None, enabled_only=False)
+        profiles = [r["name"] for r in memory.db._conn().execute(
+            "SELECT DISTINCT name FROM prompts WHERE stage='extract'"
+            " AND status='active' ORDER BY name").fetchall()]
+        frames_rows = memory.db.prompt_bindings(stage="frames", enabled_only=False)
+        caches = []
+        for r in frames_rows:
+            import json as _json
+            try:
+                payload = _json.loads(r.get("payload") or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            caches.append({
+                "up_mid": r["target"], "note": r.get("note"),
+                "enabled": bool(r.get("enabled")),
+                "subtitle_bands": payload.get("subtitle_bands"),
+                "event_hz": payload.get("event_hz"),
+                "speech_ratio": payload.get("speech_ratio"),
+                "duration": payload.get("duration"),
+                "updated_at": r.get("created_at"),
+            })
+        return ok({"items": [dict(r) for r in rows], "profiles": profiles,
+                   "kinds": ["up", "up_set", "domain", "source_type", "keyword"],
+                   "stages": ["extract", "router", "clip"], "caches": caches})
+
+    @api.post("/prompt-bindings")
+    def prompt_binding_add(payload: dict = Body(...)):
+        """绑定一条规则:{kind, target, prompt_name, stage?, note?}。"""
+        kind = (payload.get("kind") or "").strip()
+        target = str(payload.get("target") or "").strip()
+        name = (payload.get("prompt_name") or "").strip()
+        stage = (payload.get("stage") or "extract").strip()
+        if kind not in ("up", "up_set", "domain", "source_type", "keyword"):
+            fail("invalid_kind", f"未知规则类型:{kind}", 422)
+        if not target or not name:
+            fail("invalid_target", "target 与 prompt_name 都不能为空", 422)
+        exists = memory.db._conn().execute(
+            "SELECT 1 FROM prompts WHERE name=? AND stage='extract'"
+            " AND status='active'", (name,)).fetchone()
+        if not exists:
+            fail("not_found", f"提示词 profile 不存在:{name}", 404)
+        memory.db.bind_prompt(kind, target, name, stage=stage,
+                              note=(payload.get("note") or "").strip() or None)
+        logger.info("绑定提示词规则:%s=%s → %s(%s)", kind, target, name, stage)
+        return ok({"kind": kind, "target": target, "prompt_name": name,
+                   "stage": stage})
+
+    @api.post("/prompt-bindings/unbind")
+    def prompt_binding_remove(payload: dict = Body(...)):
+        n = memory.db.unbind_prompt((payload.get("kind") or "").strip(),
+                                    str(payload.get("target") or "").strip(),
+                                    stage=(payload.get("stage") or "extract").strip())
+        return ok({"removed": n})
+
+    @api.post("/frames-profiles/clear")
+    def frames_profile_clear(payload: dict = Body(...)):
+        """清掉某 UP 的画像缓存(下次采集会重新生成)。"""
+        n = memory.db.unbind_prompt("up", str(payload.get("up_mid") or "").strip(),
+                                    stage="frames")
+        return ok({"removed": n})
+
     @api.get("/sources")
     def sources():
         """订阅源列表(B站 UP主等)。"""

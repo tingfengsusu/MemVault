@@ -7,7 +7,7 @@
 import { computed, onMounted, ref } from 'vue'
 import ToastHost from '../components/ToastHost.vue'
 import { showToast } from '../lib/toast.js'
-import { ApiError, api, settingsApi } from '../api/client.js'
+import { ApiError, api, bindingApi, settingsApi } from '../api/client.js'
 
 const s = ref({ llm: {}, asr: {}, embedding: {}, vision: {}, frames: {}, links: {} })
 const loading = ref(true)
@@ -22,6 +22,57 @@ const keyHint = computed(() => keyInput.value
   : (s.value.llm?.api_key_set ? '已配置(留空则不改动)' : '未配置'))
 
 const flash = (kind, text) => showToast(kind, text)
+
+// 提示词规则绑定(购物稿 ①)+ UP 画像缓存(抽帧稿第 4 步)的管理面
+const bindings = ref([])
+const profiles = ref([])
+const kinds = ref([])
+const stages = ref(['extract'])
+const caches = ref([])
+const newRule = ref({ kind: 'up', target: '', prompt_name: '', stage: 'extract', note: '' })
+
+async function loadBindings() {
+  try {
+    const d = await bindingApi.list()
+    bindings.value = d.items
+    profiles.value = d.profiles
+    kinds.value = d.kinds
+    stages.value = d.stages
+    caches.value = d.caches
+    if (!newRule.value.prompt_name && d.profiles.length) {
+      newRule.value.prompt_name = d.profiles[d.profiles.length - 1]
+    }
+  } catch (e) { flash('err', e.message) }
+}
+
+async function addRule() {
+  busy.value = true
+  try {
+    await bindingApi.add({ ...newRule.value })
+    flash('ok', '规则已绑定')
+    newRule.value.target = ''
+    newRule.value.note = ''
+    await loadBindings()
+  } catch (e) { flash('err', e.message) } finally { busy.value = false }
+}
+
+async function removeRule(r) {
+  busy.value = true
+  try {
+    await bindingApi.remove(r.kind, r.target, r.stage)
+    flash('ok', '规则已解除')
+    await loadBindings()
+  } catch (e) { flash('err', e.message) } finally { busy.value = false }
+}
+
+async function clearCache(c) {
+  busy.value = true
+  try {
+    await bindingApi.clearCache(c.up_mid)
+    flash('ok', '画像缓存已清除(下次采集重新生成)')
+    await loadBindings()
+  } catch (e) { flash('err', e.message) } finally { busy.value = false }
+}
 
 async function load() {
   loading.value = true
@@ -68,13 +119,61 @@ async function testConn() {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadBindings() })
 </script>
 
 <template>
   <div>
     <h3 style="margin:4px 0 12px">设置</h3>
     <ToastHost />
+
+    <div class="card">
+      <h3>提示词规则 <span class="muted" style="font-weight:400">
+        命中规则的条目用指定 profile(如购物复盘),不再吃分类提示词</span></h3>
+      <div v-if="bindings.length" style="margin-bottom:8px">
+        <div v-for="r in bindings" :key="r.kind + r.target + r.stage"
+             style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--card-border)">
+          <span class="tag gray">{{ r.kind }}</span>
+          <span style="min-width:120px">{{ r.target }}</span>
+          <span class="tag">{{ r.prompt_name }}</span>
+          <span class="muted">stage={{ r.stage }}</span>
+          <span class="muted" style="font-size:12px">{{ r.note || '' }}</span>
+          <button class="ghost" :disabled="busy" @click="removeRule(r)">解除</button>
+        </div>
+      </div>
+      <p v-else class="muted">还没有规则。示例:UP(带货号)→ shopping_review,让它的视频走购物复盘提取。</p>
+      <form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"
+            @submit.prevent="addRule">
+        <select v-model="newRule.kind">
+          <option v-for="k in kinds" :key="k" :value="k">{{ k }}</option>
+        </select>
+        <input v-model="newRule.target" placeholder="UP mid / UP集(逗号分隔)/ 领域 / 关键词"
+               required style="min-width:230px">
+        <select v-model="newRule.prompt_name">
+          <option v-for="p in profiles" :key="p" :value="p">{{ p }}</option>
+        </select>
+        <select v-model="newRule.stage">
+          <option v-for="st in stages" :key="st" :value="st">{{ st }}</option>
+        </select>
+        <input v-model="newRule.note" placeholder="备注(可空)" style="min-width:120px">
+        <button :disabled="busy">绑定</button>
+      </form>
+    </div>
+
+    <div v-if="caches.length" class="card">
+      <h3>UP 画像缓存 <span class="muted" style="font-weight:400">
+        探针为该 UP 记住的常规形态(字幕带/事件频率/人声占比)</span></h3>
+      <div v-for="c in caches" :key="c.up_mid"
+           style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--card-border)">
+        <span class="tag gray">mid {{ c.up_mid }}</span>
+        <span class="muted">字幕带
+          {{ (c.subtitle_bands || []).map(b => (b[0]*100).toFixed(0) + '~' + (b[1]*100).toFixed(0) + '%').join(', ') }}</span>
+        <span class="muted">事件 {{ c.event_hz ? c.event_hz.toFixed(3) : '—' }}/s</span>
+        <span class="muted">人声 {{ c.speech_ratio == null ? '—' : (c.speech_ratio*100).toFixed(0) + '%' }}</span>
+        <span class="muted" style="font-size:12px">{{ c.duration ? c.duration + 's' : '' }}</span>
+        <button class="ghost" :disabled="busy" @click="clearCache(c)">清除</button>
+      </div>
+    </div>
 
     <div class="card">
       <h3>LLM 通道</h3>
