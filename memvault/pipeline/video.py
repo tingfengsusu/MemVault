@@ -284,6 +284,29 @@ def ingest_video(source: str, memory, cfg: dict, domain: str = "general",
         if plan["ocr_band"] and ocr is None:
             ocr = OcrReader()            # 有字幕带就必须跑 OCR(哪怕人声 98%)
             want_ocr = True
+    # 6b) 无字幕带的视频:可选"按变化事件取图示/图表帧"(设计稿 §2.3 语音为主/纯动作)
+    if (profile is not None and not has_band
+            and str((fcfg or {}).get("voice_led", "uniform")).lower() == "events"):
+        from memvault.vision.frames_probe import visual_event_frames
+
+        ts_series = None
+        try:
+            ts_series, band_motion, frame_motion, _dur, _sampled = frames_mod_probe.scan_pixels(
+                video_path, hz=float((fcfg.get("probe") or {}).get("hz", 5.0)))
+        except Exception as e:  # noqa: BLE001 — 取帧策略失败就保持均匀
+            logger.info("变化事件取帧失败,保持均匀抽帧:%s", e)
+        if ts_series:
+            picks = visual_event_frames(ts_series, frame_motion,
+                                        profile.settle_segments,
+                                        max_frames=int(fcfg.get("max_frames", 40)))
+            if len(picks) >= 3:
+                for old_f in frames_dir.glob("frame_*.jpg"):
+                    old_f.unlink()
+                frame_list = frames_mod.write_frames_at(
+                    video_path, frames_dir, picks, prefix="frame")
+                progress(f"语音为主:按变化事件取帧 {len(frame_list)} 张"
+                         f"(替代均匀 {int(fcfg.get('max_frames', 40))} 张)")
+
     units = []
     if profile is not None and _unit_enabled(cfg) and plan["unitize"]:
         units = _build_units(profile, segments)

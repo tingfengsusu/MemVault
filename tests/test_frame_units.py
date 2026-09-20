@@ -229,3 +229,37 @@ def test_decide_pipeline_four_quadrants():
     assert off["ocr_band"] is False and off["unitize"] is False
     on = decide_pipeline({"vision": {"ocr": {"enabled": True}}}, False, 0.9)
     assert on["ocr_band"] is True and on["ocr_full"] is True
+
+
+def test_visual_event_frames_picks_changes_and_settles():
+    """语音为主:按变化事件取帧 + 静止段取图表帧;太少时等距补足;数量受上限约束。"""
+    from memvault.vision.frames_probe import visual_event_frames
+
+    # 5Hz × 120s:三段静止、两次切换(切换处是高运动尖峰)
+    ts = [i * 0.2 for i in range(600)]
+    motion = [0.02] * 600
+    for i in range(200, 230):
+        motion[i] = 0.9          # 第一次切换(40s 处)
+    for i in range(450, 470):
+        motion[i] = 0.9          # 第二次切换(90s 处)
+    settles = [(20.0, 38.0), (100.0, 118.0)]      # 两段稳定展示
+    picks = visual_event_frames(ts, motion, settles, max_frames=20)
+    assert picks, "应能取到帧"
+    assert picks == sorted(picks)
+    # 锚点应落在"切换后稍晚"与"静止段中点"附近
+    assert any(39.5 <= p <= 42.5 for p in picks), picks      # 第一次切换后
+    assert any(89.5 <= p <= 92.5 for p in picks), picks      # 第二次切换后
+    assert any(28.0 <= p <= 30.0 for p in picks), picks      # 静息段 20~38 的中点
+    assert len(picks) <= 20
+    # 上限约束:同样的输入给 max_frames=5
+    few = visual_event_frames(ts, motion, settles, max_frames=5)
+    assert len(few) <= 5 and few == sorted(few)
+    # 空输入安全
+    assert visual_event_frames([], []) == []
+
+
+def test_voice_led_strategy_default_is_uniform():
+    """默认 uniform = 与今天完全一致(守零回归红线);events 才是新策略。"""
+    from memvault.config import DEFAULTS
+
+    assert DEFAULTS["frames"]["voice_led"] == "uniform"

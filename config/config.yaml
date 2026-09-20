@@ -12,6 +12,7 @@ frames:
   decode: grab         # grab=顺序解码(实测快 7 倍) | seek=旧的逐点定位(回退档)
   unit: auto           # auto=字幕类视频按"动作事件单元"落库(主路径) | off=旧块布局
   max_units: 120       # 单元数上限:超出则均匀抽样单元(长视频 OCR 成本随单元数线性)
+  voice_led: uniform   # 无字幕带视频取帧:uniform=与今天一致(零回归) | events=按变化事件取图示帧
   probe:               # 视频画像探针(docs/design-frame-units.md 第 0 步)
     enabled: auto
     hz: 5.0            # 像素证据采样率:5Hz≈4s/6.5分钟;10Hz≈15s

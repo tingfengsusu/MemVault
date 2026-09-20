@@ -457,3 +457,42 @@ def profile_payload(profile: VideoProfile) -> dict:
         "duration": round(profile.duration, 1),
         "hz": profile.used_hz,
     }
+
+def visual_event_frames(ts, frame_motion, settle_segments=None,
+                        max_frames: int = 40, after_change: float = 0.3,
+                        min_gap: float = 1.0):
+    """语音为主/纯动作类视频:按**画面变化事件**取帧(设计稿 §2.3)。
+
+    取帧两类锚点:
+    1. 变化事件的**起点稍后**(after_change 秒处)—— 切换后的新画面(新幻灯片/图表);
+    2. 静止段的中点 —— 稳定展示的图表/图示(设计稿 §1.6 的"相对静止"判据)。
+    帧数仍受 max_frames 限制;太少时用等距点补足,保证覆盖整片(不能只抓开头)。
+    """
+    import numpy as np
+
+    if len(frame_motion) == 0 or not ts:
+        return []
+    events, _floor, _enter, _exit = events_from_series(ts, frame_motion)
+    picks = []
+    for lo, _hi in events:
+        picks.append(min(max(lo + after_change, ts[0]), ts[-1]))
+    for lo, hi in (settle_segments or []):
+        picks.append((lo + hi) / 2)
+    picks.sort()
+    merged = []
+    for t in picks:
+        if not merged or t - merged[-1] >= min_gap:
+            merged.append(t)
+    if len(merged) < max(3, max_frames // 4):
+        # 事件太少(镜头几乎不变):用等距点补足,避免整片只抓开头
+        step = len(ts) / max_frames
+        filler = [ts[min(len(ts) - 1, int(i * step))] for i in range(max_frames)]
+        for t in filler:
+            if all(abs(t - m) >= min_gap for m in merged):
+                merged.append(t)
+        merged.sort()
+    if len(merged) > max_frames:
+        last = len(merged) - 1
+        idx = sorted({round(i * last / (max_frames - 1)) for i in range(max_frames)})
+        merged = [merged[i] for i in idx]
+    return [round(t, 2) for t in merged]
